@@ -3,6 +3,7 @@
 // OctoBrew: interface gráfica (Qt6) para o Homebrew, com o desenho do OctoPkg
 // e o núcleo do octobrew-tui.
 
+#include "askpass.h"
 #include "i18n.h"
 #include "mainwindow.h"
 #include "packagemodel.h"
@@ -47,6 +48,12 @@ int main(int argc, char *argv[])
                               QStringLiteral("O Homebrew não roda como root; abra o OctoBrew com o seu usuário."));
         return 1;
     }
+
+    // O sudo dos casks com .pkg pede a senha pelo octobrew-askpass (o "sudo -A"
+    // do brew), já que não há terminal. Um SUDO_ASKPASS do usuário fica.
+    const QString helper = askpass::helperPath();
+    if (!helper.isEmpty() && qEnvironmentVariableIsEmpty("SUDO_ASKPASS"))
+        qputenv("SUDO_ASKPASS", helper.toLocal8Bit());
 
     WindowOptions options;
     options.remote = parser.isSet(remote);

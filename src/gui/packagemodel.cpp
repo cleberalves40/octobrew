@@ -95,8 +95,16 @@ QVariant PackageModel::data(const QModelIndex &index, int role) const
     if (!p)
         return QVariant();
     const int column = index.column();
-    if (role == Qt::DecorationRole && column == model::StateIcon)
+    if (role == Qt::DecorationRole && column == model::StateIcon) {
+        static const QIcon toInstall(QStringLiteral(":/images/toinstall.png"));
+        static const QIcon toRemove(QStringLiteral(":/images/toremove.png"));
+        const QString key = qs(p->key());
+        if (m_install.contains(key))
+            return toInstall;
+        if (m_remove.contains(key))
+            return toRemove;
         return iconFor(*p);
+    }
     if (role == Qt::ToolTipRole && column == model::StateIcon)
         return pages::statusText(*p);
     if (role == Qt::TextAlignmentRole && column == model::Size)
@@ -168,6 +176,14 @@ void PackageModel::setSizing(bool sizing)
     m_sizing = sizing;
     if (!m_rows.empty())
         emit dataChanged(index(0, model::Size), index(rowCount() - 1, model::Size));
+}
+
+void PackageModel::setMarks(const QSet<QString> &install, const QSet<QString> &remove)
+{
+    m_install = install;
+    m_remove = remove;
+    if (!m_rows.empty())
+        emit dataChanged(index(0, model::StateIcon), index(rowCount() - 1, model::StateIcon), {Qt::DecorationRole});
 }
 
 void PackageModel::rebuild()

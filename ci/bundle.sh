@@ -23,7 +23,8 @@ rm -rf "$out" && mkdir -p "$out"
 cp -R "$build/OctoBrew.app" "$out/"
 app="$out/OctoBrew.app"
 
-"$qtbin/macdeployqt" "$app" -always-overwrite 2>&1 | grep -v "^$" || true
+# O octobrew-askpass também usa o Qt: o macdeployqt o trata junto.
+"$qtbin/macdeployqt" "$app" -always-overwrite -executable="$app/Contents/MacOS/octobrew-askpass" 2>&1 | grep -v "^$" || true
 codesign --force --deep --sign - "$app"
 codesign --verify --deep --strict "$app"
 echo "== $(du -sh "$app" | cut -f1) em $app"
@@ -34,11 +35,14 @@ expected=$(sed -n 's/^project(octobrew VERSION \([0-9.]*\).*/\1/p' CMakeLists.tx
 [ "$version" = "OctoBrew $expected" ] || { echo "FAIL: --version disse \"$version\"" >&2; exit 1; }
 
 # O Qt do bundle, não o do Homebrew: nenhuma biblioteca de /opt/homebrew.
-if otool -L "$app/Contents/MacOS/OctoBrew" | grep -q "/opt/homebrew\|/usr/local/opt"; then
-	otool -L "$app/Contents/MacOS/OctoBrew"
-	echo "FAIL: o binário ainda usa bibliotecas do Homebrew" >&2
-	exit 1
-fi
+for bin in OctoBrew octobrew-askpass; do
+	[ -x "$app/Contents/MacOS/$bin" ] || { echo "FAIL: falta $bin no bundle" >&2; exit 1; }
+	if otool -L "$app/Contents/MacOS/$bin" | grep -q "/opt/homebrew\|/usr/local/opt"; then
+		otool -L "$app/Contents/MacOS/$bin"
+		echo "FAIL: $bin ainda usa bibliotecas do Homebrew" >&2
+		exit 1
+	fi
+done
 
 [ "$launch" = yes ] || { echo "== bundle ok (sem --launch, o aplicativo não foi aberto)"; exit 0; }
 

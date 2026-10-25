@@ -13,6 +13,7 @@
 
 #include <QAbstractTableModel>
 #include <QIcon>
+#include <QSet>
 #include <vector>
 
 class PackageModel : public QAbstractTableModel
@@ -35,6 +36,8 @@ public:
     void setFilter(const QString &text, model::SearchMode mode, const QString &tap, bool leavesOnly);
     /** Enquanto os tamanhos são calculados, os instalados sem tamanho mostram "…". */
     void setSizing(bool sizing);
+    /** As marcas do OctoPkg (Package::key()): o ícone de instalar ou de remover no lugar do estado. */
+    void setMarks(const QSet<QString> &install, const QSet<QString> &remove);
 
     const std::vector<octo::Package> &packages() const { return m_all; }
     /** O pacote da linha, ou nullptr. */
@@ -64,6 +67,8 @@ private:
     bool m_leaves = false;
     bool m_sizing = false;
     model::SortSpec m_sort;
+    QSet<QString> m_install;
+    QSet<QString> m_remove;
 };
 
 #endif

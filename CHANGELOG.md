@@ -5,6 +5,38 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/)
 e o projeto usa [versionamento semântico](https://semver.org/lang/pt-BR/),
 com tags no formato `vX.Y.Z`.
 
+## [0.2.0] - 2026-10-25
+
+Transações: marcar, instalar, remover, atualizar, limpar e fixar, como no OctoPkg
+(Fase 2 do [roadmap](docs/ROADMAP.md)).
+
+### Adicionado
+- Marcas do OctoPkg na lista: **+** (ou Insert) para instalar e **-** (ou Delete) para
+  remover, com os ícones de instalar e de remover no lugar do estado. Valem com o foco na
+  lista, para não roubar o + e o - do campo de busca. As regras são as do octobrew-tui:
+  um instalado só é marcado para instalar se está desatualizado; fixados não são
+  marcados; o `ftxui` e o `octobrew-tui` não podem sair.
+- Aba **Ações** (⌥3), com os pacotes a instalar e a remover e a contagem no título;
+  ⌘E desfaz as marcas.
+- **Aplicar** (⌥M no macOS, onde o ⌘M é minimizar; Ctrl+M no Linux, como no OctoPkg): a
+  prévia do `brew install --dry-run`, os dependentes que saem junto (diálogo de **Aviso**,
+  com o "Não" como padrão) e o diálogo de transação do OctoPkg, com a opção do
+  **snapshot em Brewfile** no lugar do Boot Environment (marcada ao instalar, desmarcada
+  ao remover). Depois, o snapshot, o `brew uninstall` e o `brew install`, sem shell.
+- **Instalar as atualizações** (⌘U, `brew upgrade` com a prévia), **Atualizar o Homebrew**
+  (⌘K), **Limpar o cache local** (com o espaço liberado), **Remover dependências
+  desnecessárias** (`brew autoremove`), **Fixar** e **Liberar** (`brew pin`/`unpin`) e
+  **Restaurar um snapshot…** (`brew bundle install --no-upgrade`).
+- **octobrew-askpass**: o diálogo de senha que o sudo chama pelo `SUDO_ASKPASS` (o
+  `sudo -A` do brew), no lugar do qt-sudo do OctoPkg, para os casks com instaladores
+  `.pkg`. Fica dentro do bundle (`Contents/MacOS`); a senha vai para o sudo e não é
+  guardada. Sem ele, um sudo que precise de senha falha na hora, com a dica do `sudo -v`.
+- A saída do brew ao vivo na aba Saída, com a barra de progresso; durante uma operação,
+  as outras ficam desativadas e a janela não fecha.
+- Testes: `tst_transactions` (as marcas, a aba Ações, cada diálogo, as operações na
+  ordem e com o ambiente certos, o snapshot, as falhas, o askpass e o diálogo de senha),
+  com o brew falso do octobrew-tui.
+
 ## [0.1.0] - 2026-10-25
 
 Primeira versão: somente leitura (Fases 0 e 1 do [roadmap](docs/ROADMAP.md)).

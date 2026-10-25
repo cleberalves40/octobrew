@@ -35,7 +35,7 @@ em Brewfile e por rodar também no Linux.
 - Abas Informação (com os *caveats*), Arquivos, Saída e Ajuda; tamanhos em segundo plano;
   as folhas como filtro.
 
-### Fase 2 — Transações (v0.2.0)
+### Fase 2 — Transações ✅ (v0.2.0)
 - Marcas, a aba Ações e o `transactiondialog.ui` do OctoPkg, com a prévia, os
   dependentes (Aviso) e o snapshot.
 - Atualizar, upgrade, cleanup, autoremove, pin e a restauração de snapshot.

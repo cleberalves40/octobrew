@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "mainwindow.h"
+#include "askpass.h"
 #include "listmodel.h"
 #include "packagemodel.h"
 #include "pages.h"
@@ -12,13 +13,18 @@
 #include <QCloseEvent>
 #include <QComboBox>
 #include <QDateTime>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
 #include <QHeaderView>
+#include <QInputDialog>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QPlainTextEdit>
+#include <QProgressBar>
 #include <QSplitter>
 #include <QStatusBar>
 #include <QTabWidget>
@@ -27,7 +33,9 @@
 #include <QTimer>
 #include <QToolBar>
 #include <QToolButton>
+#include <QTreeWidget>
 #include <QVBoxLayout>
+#include <ctime>
 
 namespace {
 
@@ -47,6 +55,46 @@ QString defaultSettingsPath()
 }
 
 constexpr int kDetailsDelayMs = 150;   // entre as setas, não pede o brew info de cada linha
+// Itens de uma lista mostrados no diálogo; a lista completa vai à Saída.
+constexpr int kDialogItems = 25;
+
+QString join(const std::vector<std::string> &v, const QString &sep)
+{
+    QStringList out;
+    for (const auto &s : v)
+        out << qs(s);
+    return out.join(sep);
+}
+
+QStringList names(const std::vector<octo::Package> &packages)
+{
+    QStringList out;
+    for (const auto &p : packages)
+        out << (p.kind == octo::Kind::Cask ? qs(p.fullName) + " (cask)" : qs(p.fullName));
+    return out;
+}
+
+// Uma seção do diálogo: o título e os itens (os primeiros kDialogItems).
+QString section(const QString &title, const QStringList &items)
+{
+    if (items.isEmpty())
+        return QString();
+    QString html = QStringLiteral("<p><b>%1</b></p><ul>").arg(title.toHtmlEscaped());
+    for (int i = 0; i < items.size() && i < kDialogItems; ++i)
+        html += QStringLiteral("<li>%1</li>").arg(items[i].toHtmlEscaped());
+    if (items.size() > kDialogItems)
+        html += QStringLiteral("<li><i>%1</i></li>")
+                    .arg(ui::trf("… and %1 more (see the Output tab)", {QString::number(items.size() - kDialogItems)}).toHtmlEscaped());
+    return html + QStringLiteral("</ul>");
+}
+
+QStringList toQ(const std::vector<std::string> &v)
+{
+    QStringList out;
+    for (const auto &s : v)
+        out << qs(s);
+    return out;
+}
 
 } // namespace
 
@@ -85,6 +133,7 @@ MainWindow::MainWindow(const WindowOptions &options, QWidget *parent)
     buildUi();
     buildActions();
     restoreState();
+    updateMarks();
     setStatus(ui::tr("Ready."));
     m_info->setHtml(pages::emptyInfoHtml());
 }
@@ -139,10 +188,14 @@ void MainWindow::buildUi()
     m_output->setLineWrapMode(QPlainTextEdit::NoWrap);
     m_output->setMaximumBlockCount(5000);
     m_help = new QTextBrowser;
+    m_actionsView = new QTreeWidget;
+    m_actionsView->setHeaderHidden(true);
+    m_actionsView->setRootIsDecorated(true);
     m_tabs = new QTabWidget;
     m_tabs->setDocumentMode(true);
     m_tabs->addTab(m_info, QIcon(QStringLiteral(":/images/find.png")), ui::tr("Info"));
     m_tabs->addTab(m_files, ui::tr("Files"));
+    m_tabs->addTab(m_actionsView, QIcon(QStringLiteral(":/images/toinstall.png")), ui::tr("Actions"));
     m_tabs->addTab(m_output, QIcon(QStringLiteral(":/images/terminal.png")), ui::tr("Output"));
     m_tabs->addTab(m_help, ui::tr("Help"));
 
@@ -163,7 +216,12 @@ void MainWindow::buildUi()
     m_sizingLabel = new QLabel;
     m_countLabel = new QLabel;
     m_outdatedLabel = new QLabel;
+    m_progress = new QProgressBar;
+    m_progress->setRange(0, 0);   // sem fim conhecido: a barra que vai e volta
+    m_progress->setMaximumWidth(140);
+    m_progress->setVisible(false);
     statusBar()->addWidget(m_statusLabel, 1);
+    statusBar()->addPermanentWidget(m_progress);
     statusBar()->addPermanentWidget(m_sizingLabel);
     statusBar()->addPermanentWidget(m_countLabel);
     statusBar()->addPermanentWidget(m_outdatedLabel);
@@ -218,9 +276,45 @@ void MainWindow::buildActions()
     leaves->setIcon(QIcon(QStringLiteral(":/images/unrequired.png")));
     leaves->setIconText(ui::tr("Leaves"));
 
+    // As ações do OctoPkg, com o brew. As marcas só valem com o foco na lista:
+    // o + e o - não podem ser roubados do campo de busca.
+    const auto mark = [this, &add](const QString &name, const QString &text, const QList<QKeySequence> &keys,
+                                   std::function<void()> slot, const QString &icon) {
+        QAction *a = add(name, text, keys, std::move(slot));
+        removeAction(a);
+        a->setShortcutContext(Qt::WidgetShortcut);
+        m_table->addAction(a);
+        a->setIcon(QIcon(icon));
+        return a;
+    };
+    mark("markInstall", ui::tr("Mark for installation"), {QKeySequence(Qt::Key_Plus), QKeySequence(Qt::Key_Insert)},
+         [this] { markInstall(); }, QStringLiteral(":/images/toinstall.png"));
+    mark("markRemove", ui::tr("Mark for removal"), {QKeySequence(Qt::Key_Minus), QKeySequence(Qt::Key_Delete)},
+         [this] { markRemove(); }, QStringLiteral(":/images/toremove.png"));
+    // Aplicar: o Ctrl+M do OctoPkg. No macOS, o ⌘M é minimizar: fica o ⌥M, como no octobrew-tui.
+#ifdef Q_OS_MACOS
+    const QList<QKeySequence> applyKeys{QKeySequence(QStringLiteral("Alt+M"))};
+#else
+    const QList<QKeySequence> applyKeys{QKeySequence(QStringLiteral("Ctrl+M")), QKeySequence(QStringLiteral("Alt+M"))};
+#endif
+    QAction *applyAction = add("apply", ui::tr("Apply"), applyKeys, [this] { apply(); });
+    applyAction->setIcon(QIcon(QStringLiteral(":/images/octopi_green.png")));
+    applyAction->setIconText(ui::tr("Apply"));
+    add("clearMarks", ui::tr("Cancel: clear the marks"), {QKeySequence(QStringLiteral("Ctrl+E"))}, [this] { clearMarks(); });
+    QAction *upgradeAction = add("upgrade", ui::tr("Install updates"), {QKeySequence(QStringLiteral("Ctrl+U"))},
+                                 [this] { upgrade(); });
+    upgradeAction->setIcon(QIcon(QStringLiteral(":/images/octopi_yellow.png")));
+    add("update", ui::tr("Update Homebrew"), {QKeySequence(QStringLiteral("Ctrl+K"))}, [this] { update(); });
+    add("cleanup", ui::tr("Clean the local cache"), {}, [this] { cleanup(); });
+    add("autoremove", ui::tr("Remove unneeded dependencies"), {}, [this] { autoremove(); });
+    add("pin", ui::tr("Pin"), {}, [this] { pin(true); });
+    add("unpin", ui::tr("Unpin"), {}, [this] { pin(false); });
+    add("restore", ui::tr("Restore a snapshot…"), {}, [this] { restoreSnapshot(); });
+
     // As abas, com os números do OctoPkg.
     add("tabInfo", ui::tr("Info"), {QKeySequence(QStringLiteral("Alt+1"))}, [this] { setTab(InfoTab); });
     add("tabFiles", ui::tr("Files"), {QKeySequence(QStringLiteral("Alt+2"))}, [this] { setTab(FilesTab); });
+    add("tabActions", ui::tr("Actions"), {QKeySequence(QStringLiteral("Alt+3"))}, [this] { setTab(ActionsTab); });
     add("tabOutput", ui::tr("Output"), {QKeySequence(QStringLiteral("Alt+4"))}, [this] { setTab(OutputTab); });
     add("tabHelp", ui::tr("Help"), {QKeySequence(QStringLiteral("Alt+6")), QKeySequence(Qt::Key_F1)},
         [this] { setTab(HelpTab); });
@@ -233,14 +327,26 @@ void MainWindow::buildActions()
     file->addAction(m_actions["refresh"]);
     file->addAction(m_actions["toggleView"]);
     file->addSeparator();
+    for (const char *a : {"update", "upgrade", "cleanup", "autoremove"})
+        file->addAction(m_actions[a]);
+    file->addSeparator();
+    file->addAction(m_actions["restore"]);
+    file->addSeparator();
     file->addAction(quit);
     QMenu *search = menuBar()->addMenu(ui::tr("Search"));
     search->addAction(m_actions["findPackage"]);
     search->addAction(description);
     search->addSeparator();
     search->addAction(leaves);
+    QMenu *actionsMenu = menuBar()->addMenu(ui::tr("Actions"));
+    for (const char *a : {"markInstall", "markRemove", "", "apply", "clearMarks", "", "pin", "unpin"}) {
+        if (*a)
+            actionsMenu->addAction(m_actions[a]);
+        else
+            actionsMenu->addSeparator();
+    }
     QMenu *view = menuBar()->addMenu(ui::tr("View"));
-    for (const char *t : {"tabInfo", "tabFiles", "tabOutput", "tabHelp"})
+    for (const char *t : {"tabInfo", "tabFiles", "tabActions", "tabOutput", "tabHelp"})
         view->addAction(m_actions[t]);
     QMenu *help = menuBar()->addMenu(ui::tr("Help"));
     help->addAction(m_actions["tabHelp"]);
@@ -252,10 +358,12 @@ void MainWindow::buildActions()
     bar->setMovable(false);
     bar->addWidget(m_viewCombo);
     bar->addAction(refreshAction);
+    bar->addAction(applyAction);
+    bar->addAction(upgradeAction);
     bar->addSeparator();
     bar->addAction(leaves);
     // Na barra, as alternâncias com o nome ao lado: só o ícone não diz o que fazem.
-    for (QAction *a : {leaves, description})
+    for (QAction *a : {leaves, description, applyAction})
         if (auto *button = qobject_cast<QToolButton *>(bar->widgetForAction(a)))
             button->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
     auto *spacer = new QWidget;
@@ -267,7 +375,8 @@ void MainWindow::buildActions()
 
     // A aba Ajuda: os atalhos de cada ação, na notação do sistema (⌘R, ⌥1…).
     QList<QPair<QString, QString>> shortcuts;
-    for (const char *name : {"refresh", "toggleView", "findPackage", "searchDescription", "leaves", "tabInfo", "tabFiles",
+    for (const char *name : {"refresh", "toggleView", "findPackage", "searchDescription", "leaves", "markInstall",
+                             "markRemove", "apply", "clearMarks", "upgrade", "update", "tabInfo", "tabFiles", "tabActions",
                              "tabOutput", "tabHelp", "quit"}) {
         const QAction *a = m_actions[name];
         QStringList keys;
@@ -315,6 +424,12 @@ void MainWindow::saveState()
 
 void MainWindow::closeEvent(QCloseEvent *event)
 {
+    // Uma listagem pode ser abandonada; uma transação, não.
+    if (m_inOperation) {
+        setStatus(ui::tr("Wait for the current operation to finish."));
+        event->ignore();
+        return;
+    }
     saveState();
     m_cancelSizes = true;
     QMainWindow::closeEvent(event);
@@ -419,8 +534,10 @@ void MainWindow::applyListing(const Listing &l, int generation)
         m_hasRemote = true;
     }
     rebuildView();
-    if (l.error.isEmpty())
+    if (l.error.isEmpty() && m_operationError.isEmpty())
         setStatus(ui::tr("Ready."));
+    else if (l.error.isEmpty())   // a listagem depois de uma operação que falhou não esconde o erro
+        setStatus(ui::trf("ERROR: %1", {m_operationError}), true);
     int formulae = 0, casks = 0;
     for (const auto &p : m_installed)
         ++(p.kind == octo::Kind::Cask ? casks : formulae);
@@ -675,4 +792,594 @@ void MainWindow::about()
                                 brew.toHtmlEscaped(), QString::fromLatin1(qVersion()),
                                 ui::tr("Based on OctoPkg, © Alexandre Albuquerque Arnt").toHtmlEscaped(),
                                 ui::tr("and on octobrew-tui").toHtmlEscaped()));
+}
+
+// ---------------------------------------------------------------------------
+// Marcas e transações (a aba Ações do OctoPkg)
+// ---------------------------------------------------------------------------
+
+ConfirmAnswer MainWindow::confirm(const ConfirmRequest &request)
+{
+    if (m_confirm)
+        return m_confirm(request);
+    TransactionDialog dialog(request, this);
+    dialog.exec();
+    return dialog.answer();
+}
+
+void MainWindow::notice(const QString &title, const QString &text, bool error)
+{
+    if (m_notice) {
+        m_notice(title, text, error);
+        return;
+    }
+    if (error)
+        QMessageBox::critical(this, title, text);
+    else
+        QMessageBox::information(this, title, text);
+}
+
+bool MainWindow::refuseWhileBusy()
+{
+    if (!m_busy)
+        return false;
+    setStatus(ui::tr("Wait for the current operation to finish."));
+    return true;
+}
+
+bool MainWindow::askpassAvailable() const
+{
+    return !qEnvironmentVariableIsEmpty("SUDO_ASKPASS");
+}
+
+QString MainWindow::snapshotDir() const
+{
+    const QString path = qs(m_settings.path());
+    return QFileInfo(path).absolutePath() + QStringLiteral("/snapshots");
+}
+
+QString MainWindow::newSnapshotFile() const
+{
+    return snapshotDir() + "/" + qs(octo::snapshotName(std::time(nullptr)));
+}
+
+std::vector<octo::Package> MainWindow::packagesFor(const QSet<QString> &keys) const
+{
+    // Os instalados, depois o repositório: uma marca da visão Repositório vale na outra.
+    std::vector<octo::Package> out;
+    QSet<QString> found;
+    for (const auto *list : {&m_installed, &m_remote})
+        for (const auto &p : *list) {
+            const QString key = qs(p.key());
+            if (keys.contains(key) && !found.contains(key)) {
+                found.insert(key);
+                out.push_back(p);
+            }
+        }
+    return out;
+}
+
+void MainWindow::updateMarks()
+{
+    m_model->setMarks(m_toInstall, m_toRemove);
+    m_actionsView->clear();
+    const auto fill = [this](const QString &title, const QSet<QString> &keys, const QString &icon) {
+        if (keys.isEmpty())
+            return;
+        auto *top = new QTreeWidgetItem(m_actionsView, {QStringLiteral("%1 (%2)").arg(title).arg(keys.size())});
+        top->setIcon(0, QIcon(icon));
+        for (const auto &p : packagesFor(keys))
+            new QTreeWidgetItem(top, {p.kind == octo::Kind::Cask ? qs(p.fullName) + " (cask)" : qs(p.fullName)});
+        top->setExpanded(true);
+    };
+    fill(ui::tr("To be installed"), m_toInstall, QStringLiteral(":/images/toinstall.png"));
+    fill(ui::tr("To be removed"), m_toRemove, QStringLiteral(":/images/toremove.png"));
+    if (m_toInstall.isEmpty() && m_toRemove.isEmpty())
+        new QTreeWidgetItem(m_actionsView, {ui::tr("No packages marked. Use + to install and - to remove.")});
+    const int marked = static_cast<int>(m_toInstall.size() + m_toRemove.size());
+    m_tabs->setTabText(ActionsTab, marked ? QStringLiteral("%1 (%2)").arg(ui::tr("Actions")).arg(marked) : ui::tr("Actions"));
+    m_actions["apply"]->setEnabled(marked > 0);
+}
+
+void MainWindow::markInstall()
+{
+    const octo::Package *p = current();
+    if (!p)
+        return;
+    const QString key = qs(p->key());
+    if (p->pinned) {
+        setStatus(ui::trf("%1 is pinned.", {qs(p->name)}));
+        return;
+    }
+    // Instalar um instalado só faz sentido se ele está desatualizado (o brew install o atualiza).
+    if (p->installed && p->newVersion.empty() && !m_toInstall.contains(key)) {
+        setStatus(ui::trf("%1 is already installed and up to date.", {qs(p->name)}));
+        return;
+    }
+    // Como no OctoPkg, + de novo desmarca; instalar e remover se excluem.
+    if (!m_toInstall.remove(key)) {
+        m_toInstall.insert(key);
+        m_toRemove.remove(key);
+    }
+    updateMarks();
+}
+
+void MainWindow::markRemove()
+{
+    const octo::Package *p = current();
+    if (!p)
+        return;
+    const QString key = qs(p->key());
+    if (!p->installed) {
+        setStatus(ui::tr("Only installed packages can be removed."));
+        return;
+    }
+    if (octo::isForbidden(*p)) {
+        setStatus(ui::trf("%1 cannot be removed.", {qs(p->name)}));
+        return;
+    }
+    if (p->pinned) {
+        setStatus(ui::trf("%1 is pinned.", {qs(p->name)}));
+        return;
+    }
+    if (!m_toRemove.remove(key)) {
+        m_toRemove.insert(key);
+        m_toInstall.remove(key);
+    }
+    updateMarks();
+}
+
+void MainWindow::clearMarks()
+{
+    m_toInstall.clear();
+    m_toRemove.clear();
+    updateMarks();
+}
+
+void MainWindow::apply()
+{
+    if (refuseWhileBusy())
+        return;
+    if (m_toInstall.isEmpty() && m_toRemove.isEmpty()) {
+        notice(ui::tr("Actions"), ui::tr("No packages marked. Use + to install and - to remove."));
+        return;
+    }
+    const std::vector<octo::Package> rem = packagesFor(m_toRemove);
+    const std::vector<octo::Package> ins = packagesFor(m_toInstall);
+    // O brew não remove o que outros instalados usam: eles vão juntos, como no
+    // "pkg remove -R" do OctoPkg, e o diálogo vira Aviso.
+    std::vector<std::string> remKeys;
+    for (const auto &k : m_toRemove)
+        remKeys.push_back(k.toStdString());
+    const auto closure = octo::dependentsClosure(m_installed, remKeys);
+    QSet<QString> closureKeys;
+    for (const auto &k : closure)
+        closureKeys.insert(qs(k));
+    const std::vector<octo::Package> deps = packagesFor(closureKeys);
+    for (const auto &p : deps)
+        if (octo::isForbidden(p) || p.pinned) {
+            notice(ui::tr("Error"), ui::trf("%1 depends on a package marked for removal and cannot be removed.", {qs(p.fullName)}), true);
+            return;
+        }
+    struct Preview {
+        octo::TransactionPreview install;
+        std::vector<std::string> sudo;
+    };
+    m_busy = true;
+    setStatus(ui::tr("Collecting transaction data…"));
+    runAsync<Result<Preview>>(
+        [this, rem, ins, deps] {
+            Result<Preview> r;
+            try {
+                if (!ins.empty())
+                    r.value.install = m_mgr.previewInstall(ins);
+                std::vector<std::string> casks;
+                for (const auto *list : {&rem, &deps, &ins})
+                    for (const auto &p : *list)
+                        if (p.kind == octo::Kind::Cask)
+                            casks.push_back(p.fullName);
+                r.value.sudo = m_mgr.casksNeedingSudo(casks);
+            } catch (const std::exception &e) {
+                r.error = QString::fromUtf8(e.what());
+            }
+            return r;
+        },
+        [this, rem, ins, deps](const Result<Preview> &r) {
+            m_busy = false;
+            if (!r.error.isEmpty()) {
+                setStatus(ui::trf("ERROR: %1", {r.error}), true);
+                log(m_status);
+                notice(ui::tr("Error"), r.error, true);
+                return;
+            }
+            setStatus(ui::tr("Ready."));
+            std::vector<octo::Package> removal = rem;
+            removal.insert(removal.end(), deps.begin(), deps.end());
+            const QStringList retrieved = toQ(r.value.install.items());
+            const QStringList removed = names(removal);
+
+            ConfirmRequest req;
+            req.danger = !deps.empty();
+            req.title = req.danger ? ui::tr("Warning") : ui::tr("Confirmation");
+            req.text = ui::tr("Confirm?");
+            req.details = section(retrieved.size() == 1 ? ui::tr("The following package needs to be retrieved")
+                                                        : ui::trf("The following %1 packages need to be retrieved",
+                                                                  {QString::number(retrieved.size())}),
+                                  retrieved)
+                          + section(removed.size() == 1 ? ui::tr("The following package will be removed")
+                                                        : ui::trf("The following %1 packages will be removed",
+                                                                  {QString::number(removed.size())}),
+                                    removed);
+            if (!deps.empty())
+                req.details += QStringLiteral("<p style='color:#c03030'>%1</p>")
+                                   .arg(ui::trf("(%1 of them depend on the marked packages)", {QString::number(deps.size())}).toHtmlEscaped());
+            if (retrieved.isEmpty() && removed.isEmpty())
+                req.details += QStringLiteral("<p>%1</p>").arg(ui::tr("Nothing to do: the marked packages are already in this state.").toHtmlEscaped());
+            if (!r.value.sudo.empty())
+                req.details += QStringLiteral("<p>%1</p>").arg(ui::trf("Needs sudo: %1", {join(r.value.sudo, QStringLiteral(", "))}).toHtmlEscaped());
+            // O Boot Environment do OctoPkg: marcado ao instalar, desmarcado ao remover.
+            req.snapshot = true;
+            req.snapshotChecked = !ins.empty();
+            req.snapshotFile = newSnapshotFile();
+            log(ui::tr("Transaction:"));
+            for (const auto &i : retrieved)
+                log("  + " + i);
+            for (const auto &i : removed)
+                log("  - " + i);
+            for (const auto &w : r.value.install.warnings)
+                log(ui::trf("WARNING: %1", {qs(w)}));
+            const ConfirmAnswer answer = confirm(req);
+            if (!answer.accepted)
+                return;
+
+            const QString file = req.snapshotFile;
+            const bool withSnapshot = answer.snapshot;
+            QStringList commands;
+            if (withSnapshot)
+                commands << qs(m_mgr.commandLine({"bundle", "dump", "--file=" + file.toStdString(), "--force"}));
+            for (const auto &a : octo::Manager::uninstallArgs(removal))
+                commands << qs(m_mgr.commandLine(a));
+            for (const auto &a : octo::Manager::installArgs(ins))
+                commands << qs(m_mgr.commandLine(a));
+            const bool interactive = askpassAvailable();
+            runOperation(ins.empty() ? ui::tr("Removing selected packages...") : ui::tr("Installing selected packages..."),
+                         commands.join(QStringLiteral("; ")),
+                         [this, withSnapshot, file, removal, ins, interactive](const octo::OutputFn &out) {
+                             // Sem shell: se o snapshot falhar, nada é removido nem instalado.
+                             if (withSnapshot)
+                                 m_mgr.snapshot(file.toStdString(), out);
+                             if (!removal.empty())
+                                 m_mgr.uninstall(removal, out, interactive);
+                             if (!ins.empty())
+                                 m_mgr.install(ins, out, interactive);
+                         },
+                         [this, removal, ins, withSnapshot, file] {
+                             for (const auto &p : removal)
+                                 m_toRemove.remove(qs(p.key()));
+                             for (const auto &p : ins)
+                                 m_toInstall.remove(qs(p.key()));
+                             updateMarks();
+                             QString summary;
+                             if (withSnapshot)
+                                 summary += ui::trf("Snapshot: %1", {file}) + "\n";
+                             if (!ins.empty())
+                                 summary += ui::trf("Installed: %1", {names(ins).join(QStringLiteral(", "))}) + "\n";
+                             if (!removal.empty())
+                                 summary += ui::trf("Removed: %1", {names(removal).join(QStringLiteral(", "))}) + "\n";
+                             notice(ui::tr("Command finished OK!"), summary + ui::tr("Details in the Output tab."));
+                         });
+        });
+}
+
+void MainWindow::upgrade()
+{
+    if (refuseWhileBusy())
+        return;
+    QMap<QString, QString> casks;   // os casks instalados, pelo nome
+    for (const auto &p : m_installed)
+        if (p.kind == octo::Kind::Cask)
+            casks.insert(qs(p.name), qs(p.fullName));
+    struct Preview {
+        octo::TransactionPreview upgrade;
+        std::vector<std::string> sudo;
+    };
+    m_busy = true;
+    setStatus(ui::tr("Collecting transaction data…"));
+    runAsync<Result<Preview>>(
+        [this, casks] {
+            Result<Preview> r;
+            try {
+                r.value.upgrade = m_mgr.previewUpgrade();
+                std::vector<std::string> tokens;
+                for (const auto &i : r.value.upgrade.items()) {
+                    const QString name = qs(octo::itemName(i));
+                    if (casks.contains(name))
+                        tokens.push_back(casks.value(name).toStdString());
+                }
+                r.value.sudo = m_mgr.casksNeedingSudo(tokens);
+            } catch (const std::exception &e) {
+                r.error = QString::fromUtf8(e.what());
+            }
+            return r;
+        },
+        [this](const Result<Preview> &r) {
+            m_busy = false;
+            if (!r.error.isEmpty()) {
+                setStatus(ui::trf("ERROR: %1", {r.error}), true);
+                notice(ui::tr("Error"), r.error, true);
+                return;
+            }
+            setStatus(ui::tr("Ready."));
+            for (const auto &w : r.value.upgrade.warnings)
+                log(ui::trf("WARNING: %1", {qs(w)}));
+            if (r.value.upgrade.count() == 0) {
+                notice(ui::tr("System upgrade"), ui::tr("There are no new updates available!"));
+                return;
+            }
+            const QStringList items = toQ(r.value.upgrade.items());
+            ConfirmRequest req;
+            req.title = ui::tr("System upgrade");
+            req.text = ui::tr("Confirm?");
+            req.details = section(items.size() == 1 ? ui::tr("The following package needs to be retrieved")
+                                                    : ui::trf("The following %1 packages need to be retrieved",
+                                                              {QString::number(items.size())}),
+                                  items)
+                          + QStringLiteral("<p>%1</p>").arg(ui::tr("Pinned packages are not upgraded.").toHtmlEscaped());
+            if (!r.value.sudo.empty())
+                req.details += QStringLiteral("<p>%1</p>").arg(ui::trf("Needs sudo: %1", {join(r.value.sudo, QStringLiteral(", "))}).toHtmlEscaped());
+            req.snapshot = true;
+            req.snapshotChecked = true;
+            req.snapshotFile = newSnapshotFile();
+            log(ui::tr("Transaction:"));
+            for (const auto &i : items)
+                log("  + " + i);
+            const ConfirmAnswer answer = confirm(req);
+            if (!answer.accepted)
+                return;
+            const QString file = req.snapshotFile;
+            const bool withSnapshot = answer.snapshot;
+            const bool interactive = askpassAvailable();
+            runOperation(ui::tr("Installing updates..."),
+                         (withSnapshot ? qs(m_mgr.commandLine({"bundle", "dump", "--file=" + file.toStdString(), "--force"})) + "; "
+                                       : QString())
+                             + qs(m_mgr.commandLine({"upgrade"})),
+                         [this, withSnapshot, file, interactive](const octo::OutputFn &out) {
+                             if (withSnapshot)
+                                 m_mgr.snapshot(file.toStdString(), out);
+                             m_mgr.upgrade(out, interactive);
+                         },
+                         [this, withSnapshot, file] {
+                             notice(ui::tr("Command finished OK!"),
+                                    (withSnapshot ? ui::trf("Snapshot: %1", {file}) + "\n" : QString())
+                                        + ui::tr("Details in the Output tab."));
+                         });
+        });
+}
+
+void MainWindow::update()
+{
+    runOperation(ui::tr("Updating Homebrew and the package list…"), qs(m_mgr.commandLine({"update"})),
+                 [this](const octo::OutputFn &out) { m_mgr.update(out); },
+                 // O cache da API mudou: a visão Repositório relê na próxima vez.
+                 [this] { m_hasRemote = m_remoteView; });
+}
+
+void MainWindow::cleanup()
+{
+    if (refuseWhileBusy())
+        return;
+    m_busy = true;
+    setStatus(ui::tr("Collecting transaction data…"));
+    runAsync<Result<octo::TransactionPreview>>(
+        [this] {
+            Result<octo::TransactionPreview> r;
+            try {
+                r.value = m_mgr.previewCleanup();
+            } catch (const std::exception &e) {
+                r.error = QString::fromUtf8(e.what());
+            }
+            return r;
+        },
+        [this](const Result<octo::TransactionPreview> &r) {
+            m_busy = false;
+            setStatus(r.error.isEmpty() ? ui::tr("Ready.") : ui::trf("ERROR: %1", {r.error}), !r.error.isEmpty());
+            if (!r.error.isEmpty()) {
+                notice(ui::tr("Error"), r.error, true);
+                return;
+            }
+            if (r.value.count() == 0) {
+                notice(ui::tr("Clean the local cache"), ui::tr("Nothing to clean."));
+                return;
+            }
+            log(ui::trf("brew cleanup would remove %1 item(s):", {QString::number(r.value.count())}));
+            for (const auto &i : r.value.items())
+                log("  - " + qs(i));
+            ConfirmRequest req;
+            req.title = ui::tr("Clean the local cache");
+            req.text = ui::tr("Confirm?");
+            req.details = section(ui::trf("brew cleanup would remove %1 item(s):", {QString::number(r.value.count())}),
+                                  toQ(r.value.items()));
+            if (!r.value.freed.empty())
+                req.details += QStringLiteral("<p><b>%1</b></p>").arg(ui::trf("It would free approximately %1.", {qs(r.value.freed)}).toHtmlEscaped());
+            if (!confirm(req).accepted)
+                return;
+            runOperation(ui::tr("Cleaning the local cache..."), qs(m_mgr.commandLine({"cleanup", "--prune=all"})),
+                         [this](const octo::OutputFn &out) { m_mgr.cleanup(out); }, nullptr);
+        });
+}
+
+void MainWindow::autoremove()
+{
+    if (refuseWhileBusy())
+        return;
+    m_busy = true;
+    setStatus(ui::tr("Collecting transaction data…"));
+    runAsync<Result<octo::TransactionPreview>>(
+        [this] {
+            Result<octo::TransactionPreview> r;
+            try {
+                r.value = m_mgr.previewAutoremove();
+            } catch (const std::exception &e) {
+                r.error = QString::fromUtf8(e.what());
+            }
+            return r;
+        },
+        [this](const Result<octo::TransactionPreview> &r) {
+            m_busy = false;
+            setStatus(r.error.isEmpty() ? ui::tr("Ready.") : ui::trf("ERROR: %1", {r.error}), !r.error.isEmpty());
+            if (!r.error.isEmpty()) {
+                notice(ui::tr("Error"), r.error, true);
+                return;
+            }
+            if (r.value.count() == 0) {
+                notice(ui::tr("Remove unneeded dependencies"), ui::tr("There are no unneeded dependencies."));
+                return;
+            }
+            const QStringList items = toQ(r.value.items());
+            ConfirmRequest req;
+            req.title = ui::tr("Remove unneeded dependencies");
+            req.text = ui::tr("Confirm?");
+            req.details = section(ui::trf("The following %1 packages will be removed", {QString::number(items.size())}), items)
+                          + QStringLiteral("<p>%1</p>").arg(ui::tr("They were installed as dependencies and nothing uses them anymore.").toHtmlEscaped());
+            log(ui::tr("Transaction:"));
+            for (const auto &i : items)
+                log("  - " + i);
+            if (!confirm(req).accepted)
+                return;
+            runOperation(ui::tr("Removing unneeded dependencies…"), qs(m_mgr.commandLine({"autoremove"})),
+                         [this](const octo::OutputFn &out) { m_mgr.autoremove(out); }, nullptr);
+        });
+}
+
+void MainWindow::pin(bool pinIt)
+{
+    const octo::Package *p = current();
+    if (!p || !p->installed) {
+        setStatus(ui::tr("Select an installed package."));
+        return;
+    }
+    if (p->pinned == pinIt) {
+        setStatus(pinIt ? ui::trf("%1 is pinned.", {qs(p->name)}) : ui::trf("%1 is not pinned.", {qs(p->name)}));
+        return;
+    }
+    const octo::Package pkg = *p;
+    runOperation(pinIt ? ui::tr("Pinning…") : ui::tr("Unpinning…"), qs(m_mgr.commandLine(octo::Manager::pinArgs(pkg, pinIt))),
+                 [this, pkg, pinIt](const octo::OutputFn &out) { m_mgr.pin(pkg, pinIt, out); }, nullptr);
+}
+
+void MainWindow::restoreSnapshot(const QString &chosen)
+{
+    if (refuseWhileBusy())
+        return;
+    QString file = chosen;
+    if (file.isEmpty()) {
+        const auto list = octo::listSnapshots(snapshotDir().toStdString());
+        if (list.empty()) {
+            notice(ui::tr("Restore a snapshot"), ui::trf("No snapshots in %1 yet.", {snapshotDir()}));
+            return;
+        }
+        bool ok = false;
+        const QString name = QInputDialog::getItem(this, ui::tr("Restore a snapshot"),
+                                                   ui::trf("Snapshots in %1", {snapshotDir()}), toQ(list), 0, false, &ok);
+        if (!ok)
+            return;
+        file = snapshotDir() + "/" + name;
+    }
+    ConfirmRequest req;
+    req.title = ui::tr("Restore a snapshot");
+    req.text = ui::tr("Confirm?");
+    req.details = QStringLiteral("<p>%1</p><p>%2</p>")
+                      .arg(file.toHtmlEscaped(), ui::tr("Installs what is missing from it; nothing is removed or upgraded.").toHtmlEscaped());
+    if (!confirm(req).accepted)
+        return;
+    const bool interactive = askpassAvailable();
+    runOperation(ui::tr("Restoring the snapshot…"),
+                 qs(m_mgr.commandLine({"bundle", "install", "--file=" + file.toStdString(), "--no-upgrade"})),
+                 [this, file, interactive](const octo::OutputFn &out) { m_mgr.restore(file.toStdString(), out, interactive); },
+                 [this, file] {
+                     notice(ui::tr("Command finished OK!"), ui::trf("Restored: %1", {file}) + "\n" + ui::tr("Details in the Output tab."));
+                 });
+}
+
+// ---------------------------------------------------------------------------
+// Execução das operações, com a saída ao vivo na aba Saída
+// ---------------------------------------------------------------------------
+
+void MainWindow::appendOutput(const QString &chunk)
+{
+    // Linha a linha; "\r" (as barras de progresso do brew) recomeça a linha atual.
+    for (const QChar c : chunk) {
+        if (c == '\n') {
+            m_output->appendPlainText(QStringLiteral("  ") + m_partial);
+            m_partial.clear();
+        } else if (c == '\r') {
+            m_partial.clear();
+        } else {
+            m_partial += c;
+        }
+    }
+}
+
+void MainWindow::runOperation(const QString &status, const QString &command, Work work, std::function<void()> onSuccess)
+{
+    if (refuseWhileBusy())
+        return;
+    m_operationError.clear();
+    log(command);
+    // Como no OctoPkg, a aba Saída acompanha a transação.
+    setTab(OutputTab);
+    m_partial.clear();
+    m_busy = true;
+    m_inOperation = true;
+    m_cancelSizes = true;
+    ++m_generation;   // a medição de tamanhos em andamento não vale mais
+    setStatus(status);
+    m_progress->setVisible(true);
+    for (const char *a : {"apply", "upgrade", "update", "cleanup", "autoremove", "pin", "unpin", "restore", "refresh"})
+        m_actions[a]->setEnabled(false);
+    const bool sync = m_options.synchronous;
+    QPointer<MainWindow> self(this);
+    runAsync<QString>(
+        [this, work, sync, self] {
+            // A saída chega na thread do trabalho e vai para a interface pela fila de eventos.
+            const octo::OutputFn out = [this, sync, self](const std::string &chunk) {
+                const QString text = QString::fromStdString(chunk);
+                if (sync)
+                    appendOutput(text);
+                else
+                    QMetaObject::invokeMethod(self, [self, text] { if (self) self->appendOutput(text); }, Qt::QueuedConnection);
+            };
+            try {
+                work(out);
+            } catch (const std::exception &e) {
+                return QString::fromUtf8(e.what());
+            }
+            return QString();
+        },
+        [this, onSuccess](const QString &error) { finishOperation(error, onSuccess); });
+}
+
+void MainWindow::finishOperation(const QString &error, const std::function<void()> &onSuccess)
+{
+    m_busy = false;
+    m_inOperation = false;
+    m_progress->setVisible(false);
+    for (const char *a : {"upgrade", "update", "cleanup", "autoremove", "pin", "unpin", "restore", "refresh"})
+        m_actions[a]->setEnabled(true);
+    updateMarks();   // o Aplicar volta se ainda houver marcas
+    if (!m_partial.isEmpty())
+        appendOutput(QStringLiteral("\n"));
+    if (!error.isEmpty()) {
+        m_operationError = error;
+        setStatus(ui::trf("ERROR: %1", {error}), true);
+        log(m_status);
+        notice(ui::tr("Error"), error, true);
+        refresh();   // a transação pode ter feito parte do trabalho
+        return;
+    }
+    setStatus(ui::tr("Ready."));
+    log(ui::tr("Command finished OK!"));
+    if (onSuccess)
+        onSuccess();
+    refresh();
 }

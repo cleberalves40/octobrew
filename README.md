@@ -11,7 +11,7 @@ do [octobrew-tui](https://github.com/cleberalves40/octobrew-tui), a versão de t
 
 ## Estado
 
-**v0.4.0** (as Fases 0 a 4 do [roadmap](docs/ROADMAP.md)). O programa:
+**v1.0.0** (as Fases 0 a 5 do [roadmap](docs/ROADMAP.md)). O programa:
 
 - lista as fórmulas e os casks instalados e os do repositório (o cache da API do
   Homebrew, mais os taps de terceiros), com os ícones de estado do OctoPkg;
@@ -37,7 +37,19 @@ do [octobrew-tui](https://github.com/cleberalves40/octobrew-tui), a versão de t
 - tem as **Preferências** (⌘,): o idioma, a aparência (clara, escura ou a do sistema) e o
   notificador.
 
-A Fase 5 é a distribuição (a fórmula no tap). Veja o [CHANGELOG](CHANGELOG.md).
+Veja o [CHANGELOG](CHANGELOG.md).
+
+## Instalação
+
+```sh
+brew install cleberalves40/tap/octobrew
+ln -sf "$(brew --prefix)/opt/octobrew/OctoBrew.app" /Applications/OctoBrew.app   # opcional
+```
+
+O nome completo adiciona o tap e, no brew 6+, já confia nele. O brew compila a partir do
+código, com o CMake, o Ninja e o `qtbase`; o `brew upgrade` traz as versões novas. O
+comando `octobrew` abre o aplicativo pelo terminal. Sem cask por enquanto: um cask
+precisaria da notarização da Apple (veja o [RELEASING](docs/RELEASING.md)).
 
 ## O notificador
 
@@ -72,7 +84,7 @@ As mesmas do octobrew-tui, com o diálogo de transação do OctoPkg:
   pede a senha pelo `octobrew-askpass` (`SUDO_ASKPASS`, `sudo -A`). A senha vai direto ao
   sudo e não é guardada.
 
-## Compilação
+## Compilação (a partir do código)
 
 ```sh
 brew install qtbase cmake ninja

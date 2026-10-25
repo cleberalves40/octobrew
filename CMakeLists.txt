@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(octobrew VERSION 0.4.0 LANGUAGES CXX)
+project(octobrew VERSION 1.0.0 LANGUAGES CXX)
 if(APPLE)
     enable_language(OBJCXX)   # src/gui/macos.mm: o AppKit, para o notificador fora do Dock
 endif()

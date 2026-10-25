@@ -5,6 +5,34 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/)
 e o projeto usa [versionamento semântico](https://semver.org/lang/pt-BR/),
 com tags no formato `vX.Y.Z`.
 
+## [0.4.0] - 2026-10-25
+
+O macOS de verdade (Fase 4 do [roadmap](docs/ROADMAP.md)).
+
+### Adicionado
+- **octobrew-notifier**, o notificador da barra de menus, como o octopi-notifier:
+  - o polvo do Octopi em verde (em dia), amarelo (há atualizações) ou vermelho (o brew
+    falhou), e um menu com a contagem ("3 atualizações disponíveis"), os pacotes e as
+    versões, **Instalar as atualizações** (abre o OctoBrew direto no diálogo do
+    upgrade), **Abrir o OctoBrew**, **Procurar atualizações agora** e Sair;
+  - verifica ao abrir e de tempos em tempos (6 h por padrão), com o `brew update` antes,
+    como o octopi-notifier, ou sem ele, pela preferência; os fixados não contam;
+  - fica fora do Dock e do ⌘⇥ (só na barra de menus) e pode iniciar com o sistema, por
+    um LaunchAgent em `~/Library/LaunchAgents/io.github.cleberalves40.octobrew.notifier.plist`;
+  - mora dentro do bundle, ao lado do OctoBrew e do octobrew-askpass.
+- **Preferências** (⌘,, no menu OctoBrew do macOS): o idioma (vale ao abrir de novo), a
+  **aparência** (a do sistema, clara ou escura; Qt 6.8+) e o notificador (iniciar com o
+  sistema, de quantas em quantas horas e o `brew update` antes).
+- A **contagem no ícone do Dock**: os pacotes que dá para atualizar (Qt 6.5+).
+- O menu **Janela** do macOS, com **Minimizar** (⌘M, livre porque o Aplicar ficou no ⌥M) e
+  Zoom.
+- `--upgrade`: abre o OctoBrew já no Instalar as atualizações (o que o notificador usa).
+- As mensagens (resultados e erros) ficam presas à janela, como os diálogos de transação:
+  no macOS, *sheets*.
+- Testes: `tst_macos` (o resumo e o menu do notificador, a verificação com o brew falso,
+  o LaunchAgent, as Preferências, a contagem do Dock e o `--upgrade`), com o `HOME` num
+  diretório temporário, para nada ir ao `~/Library` de verdade.
+
 ## [0.3.0] - 2026-10-25
 
 Notícias, Serviços e o menu Homebrew (Fase 3 do [roadmap](docs/ROADMAP.md)).

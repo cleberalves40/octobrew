@@ -46,6 +46,7 @@ struct WindowOptions {
     bool remote = false;       // começa na visão Repositório
     bool synchronous = false;  // os testes: o trabalho roda na hora, sem threads
     QString curlPath;          // vazio: /usr/bin/curl, para o feed de notícias
+    bool upgradeOnStart = false;   // --upgrade: o "Instalar as atualizações" do notificador
 };
 
 class MainWindow : public QMainWindow
@@ -106,6 +107,10 @@ public:
     void setChooseHandler(ChooseHandler handler) { m_choose = std::move(handler); }
     void setFileHandler(FileHandler handler) { m_file = std::move(handler); }
     void setTapHandler(TapHandler handler) { m_tap = std::move(handler); }
+    /** As Preferências (⌘,): o idioma, a aparência e o notificador. */
+    void openPreferences();
+    /** A contagem do ícone do Dock: os desatualizados que não estão fixados. */
+    int badgeCount() const;
     QTextBrowser *newsView() const { return m_newsView; }
     QTableWidget *servicesView() const { return m_servicesView; }
     const std::vector<octo::NewsItem> &news() const { return m_news.items; }
@@ -261,6 +266,7 @@ private:
     QSet<QString> m_toInstall;                 // Package::key() dos marcados com +
     QSet<QString> m_toRemove;                  // e com -
     bool m_inOperation = false;                // uma operação do brew: a janela não fecha
+    bool m_upgradeStarted = false;             // o --upgrade já rodou
     QString m_partial;                         // a linha da Saída ainda sem "\n"
     QString m_operationError;                  // fica no status até a próxima listagem limpa
     ConfirmHandler m_confirm;

@@ -1,5 +1,8 @@
 cmake_minimum_required(VERSION 3.16)
-project(octobrew VERSION 0.3.0 LANGUAGES CXX)
+project(octobrew VERSION 0.4.0 LANGUAGES CXX)
+if(APPLE)
+    enable_language(OBJCXX)   # src/gui/macos.mm: o AppKit, para o notificador fora do Dock
+endif()
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -33,9 +36,17 @@ add_library(octobrew_gui STATIC
     src/gui/packagemodel.cpp
     src/gui/transactiondialog.cpp
     src/gui/askpass.cpp
+    src/gui/preferences.cpp
+    src/gui/notifier.cpp
     src/gui/mainwindow.cpp
     resources/resources.qrc
 )
+if(APPLE)
+    target_sources(octobrew_gui PRIVATE src/gui/macos.mm)
+    target_link_libraries(octobrew_gui PUBLIC "-framework AppKit")
+else()
+    target_sources(octobrew_gui PRIVATE src/gui/macos_stub.cpp)
+endif()
 target_include_directories(octobrew_gui PUBLIC src/gui)
 target_link_libraries(octobrew_gui PUBLIC octobrew_core Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent)
 # Fonte única da versão: project(... VERSION ...); usada no --version e no Sobre.
@@ -62,19 +73,22 @@ endif()
 # bundle, ao lado do executável (Contents/MacOS), onde o OctoBrew o procura.
 add_executable(octobrew-askpass src/askpass_main.cpp)
 target_link_libraries(octobrew-askpass PRIVATE octobrew_gui)
+# O notificador da barra de menus, também dentro do bundle.
+add_executable(octobrew-notifier src/notifier_main.cpp)
+target_link_libraries(octobrew-notifier PRIVATE octobrew_gui)
 if(APPLE)
-    set_target_properties(octobrew-askpass PROPERTIES
+    set_target_properties(octobrew-askpass octobrew-notifier PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "$<TARGET_BUNDLE_CONTENT_DIR:octobrew>/MacOS")
-    add_dependencies(octobrew octobrew-askpass)
+    add_dependencies(octobrew octobrew-askpass octobrew-notifier)
 endif()
 
-foreach(target octobrew_core octobrew_gui octobrew octobrew-askpass)
+foreach(target octobrew_core octobrew_gui octobrew octobrew-askpass octobrew-notifier)
     target_compile_options(${target} PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-Wall -Wextra>)
 endforeach()
 
 install(TARGETS octobrew BUNDLE DESTINATION . RUNTIME DESTINATION bin)
 if(NOT APPLE)
-    install(TARGETS octobrew-askpass RUNTIME DESTINATION bin)
+    install(TARGETS octobrew-askpass octobrew-notifier RUNTIME DESTINATION bin)
 endif()
 
 # Testes (QtTest, sem tela: QT_QPA_PLATFORM=offscreen). O brew falso e as
@@ -83,7 +97,7 @@ option(OCTOBREW_BUILD_TESTS "Compila os testes" OFF)
 if(OCTOBREW_BUILD_TESTS)
     find_package(Qt6 REQUIRED COMPONENTS Test)
     enable_testing()
-    foreach(test tst_model tst_mainwindow tst_transactions tst_homebrew tst_integration)
+    foreach(test tst_model tst_mainwindow tst_transactions tst_homebrew tst_macos tst_integration)
         add_executable(${test} tests/${test}.cpp)
         target_include_directories(${test} PRIVATE tui/tests)
         target_link_libraries(${test} PRIVATE octobrew_gui Qt6::Test)

@@ -29,6 +29,27 @@ const Entry kEntries[] = {
     {"Brewfiles (Brewfile *.Brewfile);;All files (*)", "Brewfiles (Brewfile *.Brewfile);;Todos os arquivos (*)", "Brewfiles (Brewfile *.Brewfile);;Todos los archivos (*)"},
     {"A cask needs administrator rights (sudo).", "Um cask precisa de direitos de administrador (sudo).", "Un cask necesita derechos de administrador (sudo)."},
     {"Password:", "Senha:", "Contraseña:"},
+    // Fase 4: as Preferências e o notificador
+    {" h", " h", " h"},
+    {"%1 updates available", "%1 atualizações disponíveis", "%1 actualizaciones disponibles"},
+    {"1 update available", "1 atualização disponível", "1 actualización disponible"},
+    {"Appearance:", "Aparência:", "Apariencia:"},
+    {"Check every:", "Verificar a cada:", "Verificar cada:"},
+    {"Check for updates now", "Procurar atualizações agora", "Buscar actualizaciones ahora"},
+    {"Checking for updates…", "Procurando atualizações…", "Buscando actualizaciones…"},
+    {"Could not remove %1", "Não foi possível remover %1", "No se pudo eliminar %1"},
+    {"Dark", "Escura", "Oscura"},
+    {"Homebrew is up to date", "O Homebrew está em dia", "Homebrew está al día"},
+    {"Light", "Clara", "Clara"},
+    {"Minimize", "Minimizar", "Minimizar"},
+    {"Notifier in the menu bar", "Notificador na barra de menus", "Notificador en la barra de menús"},
+    {"Open OctoBrew", "Abrir o OctoBrew", "Abrir OctoBrew"},
+    {"Quit the notifier", "Sair do notificador", "Salir del notificador"},
+    {"Start the notifier when you log in", "Iniciar o notificador ao entrar no sistema", "Iniciar el notificador al iniciar sesión"},
+    {"The language changes when OctoBrew starts again.", "O idioma muda quando o OctoBrew abrir de novo.", "El idioma cambia cuando OctoBrew se abra de nuevo."},
+    {"Update Homebrew before checking (brew update)", "Atualizar o Homebrew antes de verificar (brew update)", "Actualizar Homebrew antes de verificar (brew update)"},
+    {"Window", "Janela", "Ventana"},
+    {"Zoom", "Zoom", "Zoom"},
 };
 
 } // namespace

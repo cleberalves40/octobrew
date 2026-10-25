@@ -24,7 +24,8 @@ cp -R "$build/OctoBrew.app" "$out/"
 app="$out/OctoBrew.app"
 
 # O octobrew-askpass também usa o Qt: o macdeployqt o trata junto.
-"$qtbin/macdeployqt" "$app" -always-overwrite -executable="$app/Contents/MacOS/octobrew-askpass" 2>&1 | grep -v "^$" || true
+"$qtbin/macdeployqt" "$app" -always-overwrite -executable="$app/Contents/MacOS/octobrew-askpass" \
+	-executable="$app/Contents/MacOS/octobrew-notifier" 2>&1 | grep -v "^$" || true
 codesign --force --deep --sign - "$app"
 codesign --verify --deep --strict "$app"
 echo "== $(du -sh "$app" | cut -f1) em $app"
@@ -35,7 +36,7 @@ expected=$(sed -n 's/^project(octobrew VERSION \([0-9.]*\).*/\1/p' CMakeLists.tx
 [ "$version" = "OctoBrew $expected" ] || { echo "FAIL: --version disse \"$version\"" >&2; exit 1; }
 
 # O Qt do bundle, não o do Homebrew: nenhuma biblioteca de /opt/homebrew.
-for bin in OctoBrew octobrew-askpass; do
+for bin in OctoBrew octobrew-askpass octobrew-notifier; do
 	[ -x "$app/Contents/MacOS/$bin" ] || { echo "FAIL: falta $bin no bundle" >&2; exit 1; }
 	if otool -L "$app/Contents/MacOS/$bin" | grep -q "/opt/homebrew\|/usr/local/opt"; then
 		otool -L "$app/Contents/MacOS/$bin"

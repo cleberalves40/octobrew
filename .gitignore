@@ -1,0 +1,14 @@
+# Build
+build/
+build-*/
+*.o
+*.a
+compile_commands.json
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+
+# Editores e SO
+.vscode/
+.idea/
+.DS_Store

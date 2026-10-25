@@ -23,6 +23,13 @@ jobs:
         echo "CMakeLists.txt: $ver"
         test -n "$ver"
         grep -q "^## \[$ver\]" CHANGELOG.md
+        # A fórmula acompanha a última tag publicada: pode estar atrás do
+        # CMakeLists.txt, nunca à frente, e o sha256 bate com o tarball da tag.
+        formula_ver=$(sed -n 's#^  url ".*/v\([0-9.]*\)\.tar\.gz"#\1#p' homebrew/octobrew.rb)
+        echo "homebrew/octobrew.rb: $formula_ver"
+        test -n "$formula_ver"
+        test "$(printf '%s\n%s\n' "$formula_ver" "$ver" | sort -V | tail -1)" = "$ver"
+        sh ci/formula-sha.sh "$formula_ver" --check
 
     - name: Install Dependencies
       run: brew install cmake ninja qtbase
@@ -45,6 +52,18 @@ jobs:
       with:
         name: screenshots
         path: octobrew*.png
+
+  # A fórmula: num tap local, o brew style e o audit, a instalação a partir do
+  # código da tag, o brew test e o OctoBrew instalado, aberto de verdade.
+  formula:
+    name: Fórmula do Homebrew (macos-latest)
+    runs-on: macos-latest
+
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Audit, install and test the formula
+      run: sh ci/formula-test.sh
 
   # Ubuntu: o Qt 6.4 do apt, a versão mais antiga suportada, também com
   # AddressSanitizer e UBSan.

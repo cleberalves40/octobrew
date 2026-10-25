@@ -50,12 +50,13 @@ em Brewfile e por rodar também no Linux.
 - Notificador, como o octopi-notifier: um ícone na barra de menus com a contagem de
   atualizações, um LaunchAgent que roda o `brew outdated` e a contagem no ícone do Dock.
 
-### Fase 5 — Distribuição (v1.0.0)
-- Fórmula no tap `cleberalves40/tap`, compilando a partir do código, com o **`qtbase`**
-  (o Homebrew já divide o Qt: não é preciso o Qt inteiro) e o `.app` no prefixo.
-- Depois, um cask assinado e notarizado, que exige o Apple Developer ID; sem a
-  notarização, o brew 7 desativa o cask ("does not pass the macOS Gatekeeper check").
-  E um pacote para o Linux.
+### Fase 5 — Distribuição ✅ (v1.0.0, a fórmula)
+- Fórmula no tap `cleberalves40/tap`, compilando a partir do código, com o **`qtbase`** (o
+  Homebrew já divide o Qt) e o `.app` no prefixo: `brew install cleberalves40/tap/octobrew`.
+- **Adiado:** o cask assinado e notarizado, que exige o Apple Developer ID; sem a
+  notarização, o brew 7 desativa o cask ("does not pass the macOS Gatekeeper check"). O
+  homebrew-core não é caminho: ele não aceita aplicativos gráficos.
+- Depois: um pacote para o Linux (a fórmula já instala no Homebrew do Linux).
 
 ## Riscos e decisões em aberto
 1. **Assinatura e notarização:** sem o Developer ID, só a fórmula (que compila na

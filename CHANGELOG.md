@@ -5,6 +5,34 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/)
 e o projeto usa [versionamento semântico](https://semver.org/lang/pt-BR/),
 com tags no formato `vX.Y.Z`.
 
+## [1.0.0] - 2026-10-25
+
+Distribuição pela fórmula (Fase 5 do [roadmap](docs/ROADMAP.md)): o OctoBrew se instala
+com o próprio Homebrew, e a interface fica estável.
+
+### Adicionado
+- Fórmula `homebrew/octobrew.rb`, para o tap
+  [cleberalves40/homebrew-tap](https://github.com/cleberalves40/homebrew-tap):
+  `brew install cleberalves40/tap/octobrew`. Compila com o CMake e o Ninja a partir do
+  código da tag e depende só do **`qtbase`** (o Homebrew divide o Qt). No macOS, o
+  `OctoBrew.app` (com o octobrew-askpass e o octobrew-notifier dentro) fica no prefixo, o
+  comando `octobrew` o abre, e os *caveats* mostram o `ln -s` para o `/Applications`. O
+  `brew test` confere o `--version`, o `--help`, o octobrew-askpass e o octobrew-notifier,
+  sem tela.
+- `ci/formula-sha.sh`: aponta a fórmula para uma tag publicada (o `url` e o `sha256`) e,
+  com `--check`, confere. A fórmula acompanha a última tag, como no octobrew-tui.
+- CI: o job **Fórmula** (`ci/formula-test.sh`) põe a fórmula num tap local e roda o
+  `brew style`, o `brew audit --strict --online`, a instalação a partir do código, o
+  `brew test`, o `brew linkage --test` e o OctoBrew instalado, aberto de verdade. O job do
+  macOS confere se a fórmula não está à frente do `CMakeLists.txt` e se o `sha256` bate.
+- `docs/RELEASING.md`: a fórmula, o tap e por que não o homebrew-core (que não aceita
+  aplicativos gráficos) nem um cask (que precisa da notarização da Apple), por enquanto.
+
+### Corrigido
+- O `octobrew-notifier --version` (e o `--help`) caía sem o servidor de janelas (o sandbox
+  do `brew test`, ou por SSH): ele chamava o AppKit, para sair do Dock, antes de ler as
+  opções. Agora as opções vêm antes, e o AppKit só com a tela de verdade (o plugin cocoa).
+
 ## [0.4.0] - 2026-10-25
 
 O macOS de verdade (Fase 4 do [roadmap](docs/ROADMAP.md)).

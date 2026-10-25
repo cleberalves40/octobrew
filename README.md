@@ -11,7 +11,7 @@ do [octobrew-tui](https://github.com/cleberalves40/octobrew-tui), a versão de t
 
 ## Estado
 
-**v0.1.0, somente leitura** (as Fases 0 e 1 do [roadmap](docs/ROADMAP.md)). O programa:
+**v0.2.0** (as Fases 0 a 2 do [roadmap](docs/ROADMAP.md)). O programa:
 
 - lista as fórmulas e os casks instalados e os do repositório (o cache da API do
   Homebrew, mais os taps de terceiros), com os ícones de estado do OctoPkg;
@@ -19,9 +19,31 @@ do [octobrew-tui](https://github.com/cleberalves40/octobrew-tui), a versão de t
   descrição, e mostra só as folhas (`brew leaves`);
 - mostra os detalhes do pacote selecionado (com os *caveats*), os arquivos e o espaço em
   disco, medido em segundo plano;
-- ordena por qualquer coluna, lembra a ordem, o modo de busca e o tamanho da janela.
+- ordena por qualquer coluna, lembra a ordem, o modo de busca e o tamanho da janela;
+- marca pacotes para instalar (**+**) e remover (**-**), mostra a prévia no diálogo de
+  transação do OctoPkg e a executa (**⌥M**), com um snapshot em Brewfile antes;
+- instala as atualizações (**⌘U**), atualiza o Homebrew (**⌘K**), limpa o cache, remove
+  as dependências desnecessárias, fixa e libera pacotes e restaura um snapshot;
+- pede a senha do sudo, para os casks com `.pkg`, por um diálogo próprio
+  (`octobrew-askpass`).
 
-Instalar, remover e atualizar é a Fase 2. Veja o [CHANGELOG](CHANGELOG.md).
+As abas Notícias e Serviços são a Fase 3. Veja o [CHANGELOG](CHANGELOG.md).
+
+## Transações
+
+As mesmas do octobrew-tui, com o diálogo de transação do OctoPkg:
+
+- **Prévia:** `brew install --dry-run` e `brew upgrade --dry-run`; na remoção, os
+  instalados que dependem dos marcados, direta ou indiretamente, que o brew exige que
+  saiam juntos. O diálogo vira **Aviso**, com o "Não" como padrão, e um dependente
+  fixado impede a remoção.
+- **Snapshot:** a opção de um `brew bundle dump` em `~/.config/octobrew/snapshots/`, o Boot
+  Environment do OctoPkg no Homebrew. Se ele falhar, nada muda.
+- **Sem surpresas:** sem auto-update, sem a pergunta do brew 7 e sem o autoremove
+  automático do `brew uninstall`.
+- **sudo:** o brew roda como o usuário. Os casks com instaladores `.pkg` pedem o sudo, que
+  pede a senha pelo `octobrew-askpass` (`SUDO_ASKPASS`, `sudo -A`). A senha vai direto ao
+  sudo e não é guardada.
 
 ## Compilação
 
@@ -54,7 +76,11 @@ macOS.
 | <kbd>⌘L</kbd> | Ctrl+L | Buscar um pacote na lista |
 | <kbd>F7</kbd> | F7 | Buscar por descrição |
 | <kbd>⇧⌘L</kbd> | Shift+Ctrl+L | Só as folhas |
-| <kbd>⌥1</kbd> <kbd>⌥2</kbd> <kbd>⌥4</kbd> <kbd>⌥6</kbd> | Alt+1… | Abas Informação, Arquivos, Saída e Ajuda, com os números do OctoPkg |
+| <kbd>+</kbd> / <kbd>-</kbd> | + / - (ou Insert / Delete) | Marcar para instalar / remover (com o foco na lista) |
+| <kbd>⌥M</kbd> | Ctrl+M | Aplicar: prévia, confirmação e a transação |
+| <kbd>⌘E</kbd> | Ctrl+E | Desfazer as marcas |
+| <kbd>⌘U</kbd> / <kbd>⌘K</kbd> | Ctrl+U / Ctrl+K | Instalar as atualizações / atualizar o Homebrew |
+| <kbd>⌥1</kbd>…<kbd>⌥4</kbd> <kbd>⌥6</kbd> | Alt+1… | Abas Informação, Arquivos, Ações, Saída e Ajuda, com os números do OctoPkg |
 | <kbd>F1</kbd> | F1 | Ajuda |
 | <kbd>⌘Q</kbd> | Ctrl+Q | Sair |
 
@@ -63,7 +89,7 @@ macOS.
 | Camada | Local | Responsabilidade |
 |:---|:---|:---|
 | Núcleo | `tui/src/core/`, `tui/src/model/` | O octobrew-tui, num [git subtree](docs/RELEASING.md): o brew sem shell, o JSON, o cache da API, os estados, os tamanhos, i18n e o filtro e a ordem da lista. C++17 puro, sem Qt |
-| Interface | `src/gui/` | Qt6 Widgets: a janela do OctoPkg (`mainwindow`), a tabela sobre o vetor de pacotes do núcleo (`packagemodel`, sem um item por célula: são ~17 mil pacotes), as páginas das abas em HTML (`pages`) e o catálogo de textos da GUI, que cai no do núcleo (`texts`) |
+| Interface | `src/gui/` | Qt6 Widgets: a janela do OctoPkg (`mainwindow`), o diálogo de transação (`transactiondialog`), o diálogo de senha do sudo (`askpass`, e o executável `octobrew-askpass`), a tabela sobre o vetor de pacotes do núcleo (`packagemodel`, sem um item por célula: são ~17 mil pacotes), as páginas das abas em HTML (`pages`) e o catálogo de textos da GUI, que cai no do núcleo (`texts`) |
 | Recursos | `resources/` | Os ícones do OctoPkg (Octopi), © Alexandre Albuquerque Arnt, e o `OctoBrew.icns` |
 
 O trabalho com o brew roda fora da interface (`QtConcurrent`), com o núcleo síncrono do
@@ -82,6 +108,8 @@ OCTOBREW_TEST_BREW=$(command -v brew) OCTOBREW_SCREENSHOT=/tmp/octobrew.png ./bu
 - `tst_mainwindow`: a janela sem tela, com o brew falso e as amostras do brew 7 dos testes
   do octobrew-tui: listagem, repositório, taps, busca, folhas, detalhes, arquivos, erros,
   Ajuda e preferências.
+- `tst_transactions`: as marcas, a aba Ações, os diálogos, as operações na ordem e com o
+  ambiente certos, o snapshot, as falhas e o diálogo de senha.
 - `tst_integration`: a janela contra o Homebrew real, só lendo, com uma captura da tela.
 
 O CI roda no macOS (o Qt do Homebrew, a integração e o bundle aberto de verdade) e no

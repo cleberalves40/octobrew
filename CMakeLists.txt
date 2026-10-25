@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(octobrew VERSION 0.1.0 LANGUAGES CXX)
+project(octobrew VERSION 0.2.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -31,6 +31,8 @@ add_library(octobrew_gui STATIC
     src/gui/texts.cpp
     src/gui/pages.cpp
     src/gui/packagemodel.cpp
+    src/gui/transactiondialog.cpp
+    src/gui/askpass.cpp
     src/gui/mainwindow.cpp
     resources/resources.qrc
 )
@@ -56,11 +58,24 @@ if(NOT APPLE)
     set_target_properties(octobrew PROPERTIES OUTPUT_NAME octobrew)
 endif()
 
-foreach(target octobrew_core octobrew_gui octobrew)
+# O diálogo de senha que o sudo chama (SUDO_ASKPASS). No macOS, dentro do
+# bundle, ao lado do executável (Contents/MacOS), onde o OctoBrew o procura.
+add_executable(octobrew-askpass src/askpass_main.cpp)
+target_link_libraries(octobrew-askpass PRIVATE octobrew_gui)
+if(APPLE)
+    set_target_properties(octobrew-askpass PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "$<TARGET_BUNDLE_CONTENT_DIR:octobrew>/MacOS")
+    add_dependencies(octobrew octobrew-askpass)
+endif()
+
+foreach(target octobrew_core octobrew_gui octobrew octobrew-askpass)
     target_compile_options(${target} PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-Wall -Wextra>)
 endforeach()
 
 install(TARGETS octobrew BUNDLE DESTINATION . RUNTIME DESTINATION bin)
+if(NOT APPLE)
+    install(TARGETS octobrew-askpass RUNTIME DESTINATION bin)
+endif()
 
 # Testes (QtTest, sem tela: QT_QPA_PLATFORM=offscreen). O brew falso e as
 # amostras do brew 7 vêm dos testes do octobrew-tui (tui/tests).
@@ -68,7 +83,7 @@ option(OCTOBREW_BUILD_TESTS "Compila os testes" OFF)
 if(OCTOBREW_BUILD_TESTS)
     find_package(Qt6 REQUIRED COMPONENTS Test)
     enable_testing()
-    foreach(test tst_model tst_mainwindow tst_integration)
+    foreach(test tst_model tst_mainwindow tst_transactions tst_integration)
         add_executable(${test} tests/${test}.cpp)
         target_include_directories(${test} PRIVATE tui/tests)
         target_link_libraries(${test} PRIVATE octobrew_gui Qt6::Test)

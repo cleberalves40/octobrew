@@ -1,8 +1,8 @@
 class Octobrew < Formula
   desc "Graphical front end for Homebrew with the look of OctoPkg"
   homepage "https://github.com/cleberalves40/octobrew"
-  url "https://github.com/cleberalves40/octobrew/archive/refs/tags/v0.4.0.tar.gz"
-  sha256 "8ad3afeb711eb3320cf118ba6f5e0b0abcc676c5b97405b17eaa7290eccd774c"
+  url "https://github.com/cleberalves40/octobrew/archive/refs/tags/v1.0.0.tar.gz"
+  sha256 "04d9b51069218b05d01146e03a240cadd8301719eb908805b61d8335dd58436c"
   license "GPL-2.0-or-later"
   head "https://github.com/cleberalves40/octobrew.git", branch: "main"
 
@@ -40,7 +40,7 @@ class Octobrew < Formula
     assert_match "Homebrew", shell_output("#{main} --help")
     # The sudo password dialog and the menu bar notifier come along.
     assert_path_exists app/"octobrew-askpass"
-    assert_path_exists app/"octobrew-notifier"
+    assert_match "OctoBrew #{version}", shell_output("#{app}/octobrew-notifier --version")
     assert_match "OctoBrew #{version}", shell_output("#{bin}/octobrew --version") if OS.mac?
   end
 end

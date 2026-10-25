@@ -1,0 +1,94 @@
+name: Build & Test
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  # macOS com o Homebrew do runner: compila contra o FTXUI e o Catch2 do brew,
+  # roda os testes, a integração com o Homebrew real (só leitura) e a
+  # interface num pseudo-terminal.
+  macos:
+    name: macOS (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ macos-latest ]
+
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Check version consistency
+      run: |
+        cmake_ver=$(sed -n 's/^project(octobrew_tui VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)
+        echo "CMakeLists.txt: $cmake_ver"
+        test -n "$cmake_ver"
+        grep -q "^## \[$cmake_ver\]" CHANGELOG.md
+        # A fórmula acompanha a última tag publicada (o sha256 não pode vir no
+        # próprio release): pode estar atrás do CMakeLists.txt, nunca à frente,
+        # e o sha256 tem de bater com o tarball da tag no GitHub.
+        formula_ver=$(sed -n 's#^  url ".*/v\([0-9.]*\)\.tar\.gz"#\1#p' homebrew/octobrew-tui.rb)
+        echo "homebrew/octobrew-tui.rb: $formula_ver"
+        test -n "$formula_ver"
+        test "$(printf '%s\n%s\n' "$formula_ver" "$cmake_ver" | sort -V | tail -1)" = "$cmake_ver"
+        sh ci/formula-sha.sh "$formula_ver" --check
+
+    - name: Install Dependencies
+      run: brew install cmake ninja ftxui catch2
+
+    # O runner é descartável: a integração também instala e remove o figlet.
+    - name: Build, test and run against Homebrew
+      run: sh tests/macos-e2e.sh --transactions build
+
+  # A fórmula: num tap local, o brew audit (o --new só informa: são as regras
+  # do homebrew-core, como a de notabilidade), a instalação a partir do código
+  # da tag, o brew test e o programa instalado num pseudo-terminal.
+  formula:
+    name: Fórmula do Homebrew (macos-latest)
+    runs-on: macos-latest
+
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Audit, install and test the formula
+      run: sh ci/formula-test.sh
+
+  # Linux: compila contra o FTXUI 6.1.9 (a versão mais antiga suportada) e roda
+  # os testes que não precisam do Homebrew, também com AddressSanitizer e UBSan.
+  linux:
+    name: Build (Ubuntu, FTXUI 6.1.9)
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Install Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cmake ninja-build clang catch2
+
+    - name: Build and test
+      run: |
+        cmake -B build -S . -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=clang++ \
+          -DOCTOBREW_TUI_BUILD_TESTS=ON -DOCTOBREW_TUI_FETCH_FTXUI=ON
+        cmake --build build
+        ctest --test-dir build --output-on-failure
+
+    - name: Interface smoke test
+      run: sh tests/tui-smoke.sh build
+
+    - name: Test with ASan + UBSan
+      env:
+        ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+        UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+      run: |
+        cmake -B build-asan -S . -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=clang++ \
+          -DOCTOBREW_TUI_BUILD_TESTS=ON -DOCTOBREW_TUI_FETCH_FTXUI=ON \
+          -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer" \
+          -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+        cmake --build build-asan
+        ctest --test-dir build-asan --output-on-failure

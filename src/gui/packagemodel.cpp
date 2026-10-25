@@ -2,7 +2,7 @@
 
 #include "packagemodel.h"
 #include "pages.h"
-#include "strings.h"
+#include "texts.h"
 
 #include <QBrush>
 #include <QGuiApplication>

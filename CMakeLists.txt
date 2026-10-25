@@ -28,7 +28,7 @@ target_link_libraries(octobrew_core PUBLIC Threads::Threads)
 
 # A interface (Qt6 Widgets), compartilhada pelo aplicativo e pelos testes.
 add_library(octobrew_gui STATIC
-    src/gui/strings.cpp
+    src/gui/texts.cpp
     src/gui/pages.cpp
     src/gui/packagemodel.cpp
     src/gui/mainwindow.cpp

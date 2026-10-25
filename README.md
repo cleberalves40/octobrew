@@ -63,7 +63,7 @@ macOS.
 | Camada | Local | Responsabilidade |
 |:---|:---|:---|
 | Núcleo | `tui/src/core/`, `tui/src/model/` | O octobrew-tui, num [git subtree](docs/RELEASING.md): o brew sem shell, o JSON, o cache da API, os estados, os tamanhos, i18n e o filtro e a ordem da lista. C++17 puro, sem Qt |
-| Interface | `src/gui/` | Qt6 Widgets: a janela do OctoPkg (`mainwindow`), a tabela sobre o vetor de pacotes do núcleo (`packagemodel`, sem um item por célula: são ~17 mil pacotes), as páginas das abas em HTML (`pages`) e o catálogo de textos da GUI, que cai no do núcleo (`strings`) |
+| Interface | `src/gui/` | Qt6 Widgets: a janela do OctoPkg (`mainwindow`), a tabela sobre o vetor de pacotes do núcleo (`packagemodel`, sem um item por célula: são ~17 mil pacotes), as páginas das abas em HTML (`pages`) e o catálogo de textos da GUI, que cai no do núcleo (`texts`) |
 | Recursos | `resources/` | Os ícones do OctoPkg (Octopi), © Alexandre Albuquerque Arnt, e o `OctoBrew.icns` |
 
 O trabalho com o brew roda fora da interface (`QtConcurrent`), com o núcleo síncrono do

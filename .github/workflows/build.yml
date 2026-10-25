@@ -47,8 +47,7 @@ jobs:
         path: octobrew*.png
 
   # Ubuntu: o Qt 6.4 do apt, a versão mais antiga suportada, também com
-  # AddressSanitizer e UBSan. Com o GCC do sistema: os cabeçalhos do Qt 6.4
-  # (qchar.h) não compilam com o Clang 18 do Ubuntu 24.04.
+  # AddressSanitizer e UBSan.
   linux:
     name: Build (Ubuntu, Qt 6.4)
     runs-on: ubuntu-latest
@@ -59,13 +58,13 @@ jobs:
     - name: Install Dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y cmake ninja-build g++ qt6-base-dev libgl1-mesa-dev
+        sudo apt-get install -y cmake ninja-build clang qt6-base-dev libgl1-mesa-dev
 
     - name: Build and test
       env:
         QT_QPA_PLATFORM: offscreen
       run: |
-        cmake -B build -S . -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++ -DOCTOBREW_BUILD_TESTS=ON
+        cmake -B build -S . -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=clang++ -DOCTOBREW_BUILD_TESTS=ON
         cmake --build build
         ctest --test-dir build --output-on-failure
         ./build/octobrew --version
@@ -78,7 +77,7 @@ jobs:
         ASAN_OPTIONS: detect_leaks=0:halt_on_error=1
         UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
       run: |
-        cmake -B build-asan -S . -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=g++ -DOCTOBREW_BUILD_TESTS=ON \
+        cmake -B build-asan -S . -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=clang++ -DOCTOBREW_BUILD_TESTS=ON \
           -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer" \
           -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
         cmake --build build-asan

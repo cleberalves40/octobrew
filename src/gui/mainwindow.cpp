@@ -4,7 +4,7 @@
 #include "listmodel.h"
 #include "packagemodel.h"
 #include "pages.h"
-#include "strings.h"
+#include "texts.h"
 
 #include <QAction>
 #include <QActionGroup>

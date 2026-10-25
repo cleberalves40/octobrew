@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 //
-// Textos da interface gráfica: o catálogo próprio da GUI (en_US, pt_BR, es_ES)
+// Textos da interface gráfica (não "strings.h": no Linux, o <string.h> da
+// glibc inclui o <strings.h> do POSIX dentro de um extern "C", e um arquivo
+// com esse nome no caminho de inclusão o substituiria): o catálogo próprio da GUI (en_US, pt_BR, es_ES)
 // e, para o resto, o do núcleo do octobrew-tui (tui/src/core/i18n), que já
 // traduz as mensagens do brew, os estados e as colunas. Assim nada é
 // traduzido duas vezes, e o subtree do tui não muda.
 
-#ifndef OCTOBREW_STRINGS_H
-#define OCTOBREW_STRINGS_H
+#ifndef OCTOBREW_TEXTS_H
+#define OCTOBREW_TEXTS_H
 
 #include <QString>
 #include <QStringList>

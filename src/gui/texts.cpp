@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
-#include "strings.h"
+#include "texts.h"
 #include "i18n.h"
 
 #include <cstring>

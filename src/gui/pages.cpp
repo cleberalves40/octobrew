@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "pages.h"
-#include "strings.h"
+#include "texts.h"
 
 namespace pages {
 

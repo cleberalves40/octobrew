@@ -13,9 +13,13 @@
 #include <QCloseEvent>
 #include <QComboBox>
 #include <QDateTime>
+#include <QCheckBox>
+#include <QDialogButtonBox>
 #include <QDir>
 #include <QFile>
+#include <QFileDialog>
 #include <QFileInfo>
+#include <QFormLayout>
 #include <QHeaderView>
 #include <QInputDialog>
 #include <QLabel>
@@ -28,6 +32,7 @@
 #include <QSplitter>
 #include <QStatusBar>
 #include <QTabWidget>
+#include <QTableWidget>
 #include <QTableView>
 #include <QTextBrowser>
 #include <QTimer>
@@ -122,6 +127,8 @@ MainWindow::MainWindow(const WindowOptions &options, QWidget *parent)
     , m_settings((options.settingsPath.isEmpty() ? defaultSettingsPath() : options.settingsPath).toStdString())
     , m_mgr(options.brewPath.toStdString())
     , m_remoteView(options.remote)
+    , m_newsFeed(QFileInfo(QString::fromStdString(m_settings.path())).absolutePath().toStdString() + "/news.xml",
+                 options.curlPath.toStdString())
 {
     setWindowTitle(QStringLiteral("OctoBrew"));
     setWindowIcon(QIcon(QStringLiteral(":/images/octopi_green-big.png")));
@@ -191,13 +198,54 @@ void MainWindow::buildUi()
     m_actionsView = new QTreeWidget;
     m_actionsView->setHeaderHidden(true);
     m_actionsView->setRootIsDecorated(true);
+    m_newsView = new QTextBrowser;
+    m_newsView->setOpenExternalLinks(true);
+    // A aba Serviços: a tabela do brew services e os botões do serviço selecionado.
+    m_servicesView = new QTableWidget(0, 5);
+    m_servicesView->setHorizontalHeaderLabels({ui::tr("Name"), ui::tr("Status"), ui::tr("User"), ui::tr("Exit code"), ui::tr("File")});
+    m_servicesView->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_servicesView->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_servicesView->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_servicesView->verticalHeader()->hide();
+    m_servicesView->setShowGrid(false);
+    m_servicesView->setWordWrap(false);
+    m_servicesView->verticalHeader()->setSectionResizeMode(QHeaderView::Fixed);
+    m_servicesView->verticalHeader()->setDefaultSectionSize(m_servicesView->fontMetrics().height() + 6);
+    // As colunas no tamanho do conteúdo; a do arquivo vai até o fim.
+    for (int c = 0; c < 4; ++c)
+        m_servicesView->horizontalHeader()->setSectionResizeMode(c, QHeaderView::ResizeToContents);
+    m_servicesView->horizontalHeader()->setSectionResizeMode(4, QHeaderView::Stretch);
+    auto *servicesPage = new QWidget;
+    auto *servicesLayout = new QVBoxLayout(servicesPage);
+    servicesLayout->setContentsMargins(0, 0, 0, 0);
+    auto *servicesBar = new QToolBar;
+    servicesLayout->addWidget(servicesBar);
+    servicesLayout->addWidget(m_servicesView);
+    for (const auto &[verb, label] : {std::make_pair("start", "Start the service"), std::make_pair("stop", "Stop the service"),
+                                      std::make_pair("restart", "Restart the service")}) {
+        const QString v = QString::fromLatin1(verb);
+        servicesBar->addAction(ui::tr(label), this, [this, v] { service(v); });
+    }
     m_tabs = new QTabWidget;
     m_tabs->setDocumentMode(true);
     m_tabs->addTab(m_info, QIcon(QStringLiteral(":/images/find.png")), ui::tr("Info"));
     m_tabs->addTab(m_files, ui::tr("Files"));
     m_tabs->addTab(m_actionsView, QIcon(QStringLiteral(":/images/toinstall.png")), ui::tr("Actions"));
     m_tabs->addTab(m_output, QIcon(QStringLiteral(":/images/terminal.png")), ui::tr("Output"));
+    m_tabs->addTab(m_newsView, ui::tr("News"));
     m_tabs->addTab(m_help, ui::tr("Help"));
+    m_tabs->addTab(servicesPage, ui::tr("Services"));
+    connect(m_tabs, &QTabWidget::currentChanged, this, [this](int tab) {
+        // Como no octobrew-tui: as notícias e os serviços só na primeira visita.
+        if (tab == NewsTab) {
+            m_newsUnseen = false;
+            setTabTitles();
+            if (!m_newsStarted)
+                loadNews();
+        }
+        if (tab == ServicesTab && !m_servicesLoaded)
+            loadServices();
+    });
 
     m_horizontal = new QSplitter(Qt::Horizontal);
     m_horizontal->addWidget(m_taps);
@@ -254,7 +302,11 @@ void MainWindow::buildActions()
         return a;
     };
     QAction *refreshAction = add("refresh", ui::tr("Refresh the package list"),
-                                 {QKeySequence(Qt::Key_F5), QKeySequence(QStringLiteral("Ctrl+R"))}, [this] { refresh(); });
+                                 {QKeySequence(Qt::Key_F5), QKeySequence(QStringLiteral("Ctrl+R"))}, [this] {
+                                     if (m_tabs->currentIndex() == ServicesTab)
+                                         loadServices();
+                                     refresh();
+                                 });
     refreshAction->setIcon(QIcon(QStringLiteral(":/images/refresh.png")));
     refreshAction->setIconText(ui::tr("Refresh"));
     add("toggleView", ui::tr("Switch between installed and repository packages"), {QKeySequence(QStringLiteral("Ctrl+I"))},
@@ -310,12 +362,27 @@ void MainWindow::buildActions()
     add("pin", ui::tr("Pin"), {}, [this] { pin(true); });
     add("unpin", ui::tr("Unpin"), {}, [this] { pin(false); });
     add("restore", ui::tr("Restore a snapshot…"), {}, [this] { restoreSnapshot(); });
+    add("refreshNews", ui::tr("Get the latest news"), {QKeySequence(QStringLiteral("Ctrl+G"))}, [this] {
+        setTab(NewsTab);
+        if (m_newsStarted)
+            refreshNews();
+    });
+    add("serviceStart", ui::tr("Start the service"), {}, [this] { service(QStringLiteral("start")); });
+    add("serviceStop", ui::tr("Stop the service"), {}, [this] { service(QStringLiteral("stop")); });
+    add("serviceRestart", ui::tr("Restart the service"), {}, [this] { service(QStringLiteral("restart")); });
+    add("addTap", ui::tr("Add a tap…"), {}, [this] { addTap(); });
+    add("removeTap", ui::tr("Remove a tap…"), {}, [this] { removeTap(); });
+    add("exportBrewfile", ui::tr("Export a Brewfile…"), {}, [this] { exportBrewfile(); });
+    add("importBrewfile", ui::tr("Install from a Brewfile…"), {}, [this] { importBrewfile(); });
+    add("doctor", ui::tr("Check the system (brew doctor)"), {}, [this] { doctor(); });
 
     // As abas, com os números do OctoPkg.
     add("tabInfo", ui::tr("Info"), {QKeySequence(QStringLiteral("Alt+1"))}, [this] { setTab(InfoTab); });
     add("tabFiles", ui::tr("Files"), {QKeySequence(QStringLiteral("Alt+2"))}, [this] { setTab(FilesTab); });
     add("tabActions", ui::tr("Actions"), {QKeySequence(QStringLiteral("Alt+3"))}, [this] { setTab(ActionsTab); });
     add("tabOutput", ui::tr("Output"), {QKeySequence(QStringLiteral("Alt+4"))}, [this] { setTab(OutputTab); });
+    add("tabNews", ui::tr("News"), {QKeySequence(QStringLiteral("Alt+5"))}, [this] { setTab(NewsTab); });
+    add("tabServices", ui::tr("Services"), {QKeySequence(QStringLiteral("Alt+7"))}, [this] { setTab(ServicesTab); });
     add("tabHelp", ui::tr("Help"), {QKeySequence(QStringLiteral("Alt+6")), QKeySequence(Qt::Key_F1)},
         [this] { setTab(HelpTab); });
     QAction *aboutAction = add("about", ui::tr("About"), {}, [this] { about(); });
@@ -331,6 +398,7 @@ void MainWindow::buildActions()
         file->addAction(m_actions[a]);
     file->addSeparator();
     file->addAction(m_actions["restore"]);
+    file->addAction(m_actions["refreshNews"]);
     file->addSeparator();
     file->addAction(quit);
     QMenu *search = menuBar()->addMenu(ui::tr("Search"));
@@ -345,8 +413,16 @@ void MainWindow::buildActions()
         else
             actionsMenu->addSeparator();
     }
+    QMenu *brew = menuBar()->addMenu(QStringLiteral("Homebrew"));
+    for (const char *a : {"tabServices", "serviceStart", "serviceStop", "serviceRestart", "", "addTap", "removeTap", "",
+                          "exportBrewfile", "importBrewfile", "", "doctor"}) {
+        if (*a)
+            brew->addAction(m_actions[a]);
+        else
+            brew->addSeparator();
+    }
     QMenu *view = menuBar()->addMenu(ui::tr("View"));
-    for (const char *t : {"tabInfo", "tabFiles", "tabActions", "tabOutput", "tabHelp"})
+    for (const char *t : {"tabInfo", "tabFiles", "tabActions", "tabOutput", "tabNews", "tabHelp", "tabServices"})
         view->addAction(m_actions[t]);
     QMenu *help = menuBar()->addMenu(ui::tr("Help"));
     help->addAction(m_actions["tabHelp"]);
@@ -376,8 +452,8 @@ void MainWindow::buildActions()
     // A aba Ajuda: os atalhos de cada ação, na notação do sistema (⌘R, ⌥1…).
     QList<QPair<QString, QString>> shortcuts;
     for (const char *name : {"refresh", "toggleView", "findPackage", "searchDescription", "leaves", "markInstall",
-                             "markRemove", "apply", "clearMarks", "upgrade", "update", "tabInfo", "tabFiles", "tabActions",
-                             "tabOutput", "tabHelp", "quit"}) {
+                             "markRemove", "apply", "clearMarks", "upgrade", "update", "refreshNews", "tabInfo", "tabFiles",
+                             "tabActions", "tabOutput", "tabNews", "tabHelp", "tabServices", "quit"}) {
         const QAction *a = m_actions[name];
         QStringList keys;
         for (const QKeySequence &k : a->shortcuts())
@@ -718,7 +794,11 @@ void MainWindow::showDetails()
     const auto render = [this, pkg, key] {
         const auto d = m_details.find(key);
         const octo::Details *details = d == m_details.end() ? nullptr : &d.value();
-        m_info->setHtml(pages::infoHtml(pkg, details, m_detailErrors.value(key)));
+        QString service;
+        for (const auto &sv : m_services)
+            if (sv.name == pkg.name)
+                service = pages::serviceStatusText(sv.status) + (sv.user.empty() ? QString() : " (" + qs(sv.user) + ")");
+        m_info->setHtml(pages::infoHtml(pkg, details, m_detailErrors.value(key), service));
         QString filesTitle = ui::tr("Files");
         if (!pkg.installed)
             m_files->setPlainText(ui::tr("Files are listed for installed packages only."));
@@ -878,6 +958,7 @@ void MainWindow::updateMarks()
         new QTreeWidgetItem(m_actionsView, {ui::tr("No packages marked. Use + to install and - to remove.")});
     const int marked = static_cast<int>(m_toInstall.size() + m_toRemove.size());
     m_tabs->setTabText(ActionsTab, marked ? QStringLiteral("%1 (%2)").arg(ui::tr("Actions")).arg(marked) : ui::tr("Actions"));
+    setTabTitles();
     m_actions["apply"]->setEnabled(marked > 0);
 }
 
@@ -1278,12 +1359,10 @@ void MainWindow::restoreSnapshot(const QString &chosen)
             notice(ui::tr("Restore a snapshot"), ui::trf("No snapshots in %1 yet.", {snapshotDir()}));
             return;
         }
-        bool ok = false;
-        const QString name = QInputDialog::getItem(this, ui::tr("Restore a snapshot"),
-                                                   ui::trf("Snapshots in %1", {snapshotDir()}), toQ(list), 0, false, &ok);
-        if (!ok)
+        const auto index = choose(ui::tr("Restore a snapshot"), ui::trf("Snapshots in %1", {snapshotDir()}), toQ(list));
+        if (!index || *index < 0)
             return;
-        file = snapshotDir() + "/" + name;
+        file = snapshotDir() + "/" + qs(list[static_cast<size_t>(*index)]);
     }
     ConfirmRequest req;
     req.title = ui::tr("Restore a snapshot");
@@ -1382,4 +1461,368 @@ void MainWindow::finishOperation(const QString &error, const std::function<void(
     if (onSuccess)
         onSuccess();
     refresh();
+}
+
+// ---------------------------------------------------------------------------
+// Fase 3: as notícias, os serviços, os taps, o doctor e os Brewfiles
+// ---------------------------------------------------------------------------
+
+std::optional<int> MainWindow::choose(const QString &title, const QString &label, const QStringList &items)
+{
+    if (m_choose)
+        return m_choose(title, label, items);
+    bool ok = false;
+    const QString item = QInputDialog::getItem(this, title, label, items, 0, false, &ok);
+    if (!ok)
+        return std::nullopt;
+    return static_cast<int>(items.indexOf(item));
+}
+
+QString MainWindow::askFile(bool save, const QString &title, const QString &suggested)
+{
+    if (m_file)
+        return m_file(save, title, suggested);
+    // O diálogo nativo do sistema; o de gravar já pergunta antes de trocar um arquivo.
+    const QString filter = ui::tr("Brewfiles (Brewfile *.Brewfile);;All files (*)");
+    return save ? QFileDialog::getSaveFileName(this, title, suggested, filter)
+                : QFileDialog::getOpenFileName(this, title, suggested, filter);
+}
+
+std::optional<MainWindow::TapRequest> MainWindow::askTap()
+{
+    if (m_tap)
+        return m_tap();
+    QDialog dialog(this);
+    dialog.setWindowTitle(ui::tr("Add a tap"));
+    auto *name = new QLineEdit;
+    name->setPlaceholderText(QStringLiteral("user/repo"));
+    auto *trust = new QCheckBox(ui::tr("Trust its formulae and casks (brew trust --tap)"));
+    auto *hint = new QLabel(ui::tr("From GitHub: user/homebrew-repo.") + "\n" +
+                            ui::tr("Homebrew only loads packages from trusted third-party taps."));
+    hint->setStyleSheet(QStringLiteral("color: gray"));
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    auto *form = new QFormLayout(&dialog);
+    form->addRow(ui::tr("Tap (user/repo):"), name);
+    form->addRow(trust);
+    form->addRow(hint);
+    form->addRow(buttons);
+    if (dialog.exec() != QDialog::Accepted)
+        return std::nullopt;
+    return TapRequest{name->text().trimmed(), trust->isChecked()};
+}
+
+void MainWindow::setTabTitles()
+{
+    m_tabs->setTabText(NewsTab, ui::tr("News") + (m_newsUnseen ? QStringLiteral(" *") : QString()));
+}
+
+void MainWindow::loadNews()
+{
+    // Na primeira visita: as do cache na hora, e as novas em segundo plano.
+    m_newsStarted = true;
+    m_news = m_newsFeed.cached();
+    refreshNews();
+}
+
+void MainWindow::refreshNews()
+{
+    m_newsStarted = true;
+    if (m_newsBusy)
+        return;
+    m_newsBusy = true;
+    log(ui::trf("Searching for %1 latest news...", {QString::fromLatin1(octo::kNewsSource)}));
+    renderNews();
+    runAsync<octo::NewsResult>([this] { return m_newsFeed.refresh(); },
+                               [this](const octo::NewsResult &r) { applyNews(r); });
+}
+
+void MainWindow::applyNews(const octo::NewsResult &result)
+{
+    m_newsBusy = false;
+    m_news = result;
+    if (!result.error.empty())
+        log(ui::trf("WARNING: %1", {qs(result.error)}));
+    else
+        log(ui::trf("%1 news: %2 item(s).", {QString::fromLatin1(octo::kNewsSource), QString::number(result.items.size())}));
+    if (result.updated && m_tabs->currentIndex() != NewsTab)
+        m_newsUnseen = true;
+    setTabTitles();
+    renderNews();
+}
+
+void MainWindow::renderNews()
+{
+    m_newsView->setHtml(pages::newsHtml(m_news.items, m_newsBusy, qs(m_news.error), m_news.fromCache));
+}
+
+void MainWindow::loadServices()
+{
+    if (m_servicesBusy)
+        return;
+    m_servicesBusy = true;
+    runAsync<Result<std::vector<octo::Service>>>(
+        [this] {
+            Result<std::vector<octo::Service>> r;
+            try {
+                r.value = m_mgr.listServices();
+            } catch (const std::exception &e) {
+                r.error = QString::fromUtf8(e.what());
+            }
+            return r;
+        },
+        [this](const Result<std::vector<octo::Service>> &r) {
+            m_servicesBusy = false;
+            m_servicesLoaded = true;
+            m_servicesError = r.error;
+            if (r.error.isEmpty())
+                m_services = r.value;
+            else
+                log(ui::trf("WARNING: %1", {r.error}));
+            renderServices();
+            showDetails();   // o serviço da fórmula na aba Informação
+        });
+}
+
+void MainWindow::renderServices()
+{
+    m_servicesView->setRowCount(0);
+    if (!m_servicesError.isEmpty()) {
+        m_servicesView->setRowCount(1);
+        m_servicesView->setItem(0, 0, new QTableWidgetItem(ui::trf("ERROR: %1", {m_servicesError})));
+        return;
+    }
+    m_servicesView->setRowCount(static_cast<int>(m_services.size()));
+    for (int i = 0; i < static_cast<int>(m_services.size()); ++i) {
+        const auto &sv = m_services[static_cast<size_t>(i)];
+        const QString status = pages::serviceStatusText(sv.status);
+        const QStringList cells{qs(sv.name), status, qs(sv.user), sv.exitCode >= 0 ? QString::number(sv.exitCode) : QString(),
+                                qs(sv.file)};
+        for (int c = 0; c < cells.size(); ++c) {
+            auto *item = new QTableWidgetItem(cells[c]);
+            if (c == 1 && (sv.status == "started" || sv.status == "scheduled"))
+                item->setForeground(QColor(0x2e, 0x8b, 0x2e));
+            else if (c == 1 && sv.status == "error")
+                item->setForeground(QColor(0xc0, 0x30, 0x30));
+            m_servicesView->setItem(i, c, item);
+        }
+    }
+}
+
+void MainWindow::service(const QString &verb)
+{
+    // Na aba Serviços, o da linha selecionada; fora dela, o da fórmula selecionada.
+    QString name;
+    const int row = m_servicesView->currentRow();
+    if (m_tabs->currentIndex() == ServicesTab && row >= 0 && row < static_cast<int>(m_services.size()))
+        name = qs(m_services[static_cast<size_t>(row)].name);
+    else {
+        const octo::Package *p = current();
+        if (!p || !p->installed || p->kind != octo::Kind::Formula) {
+            setStatus(ui::tr("Select an installed formula."));
+            return;
+        }
+        if (!p->hasService) {
+            setStatus(ui::trf("%1 has no service.", {qs(p->name)}));
+            return;
+        }
+        name = qs(p->name);
+    }
+    const QString status = verb == "start"  ? ui::trf("Starting the service %1…", {name})
+                           : verb == "stop" ? ui::trf("Stopping the service %1…", {name})
+                                            : ui::trf("Restarting the service %1…", {name});
+    runOperation(status, qs(m_mgr.commandLine({"services", verb.toStdString(), name.toStdString()})),
+                 [this, verb, name](const octo::OutputFn &out) { m_mgr.service(verb.toStdString(), name.toStdString(), out); },
+                 [this] {
+                     m_servicesLoaded = false;
+                     loadServices();
+                 });
+}
+
+void MainWindow::addTap()
+{
+    if (refuseWhileBusy())
+        return;
+    const auto request = askTap();
+    if (!request)
+        return;
+    const QString tap = request->name;
+    if (!octo::validTapName(tap.toStdString())) {
+        notice(ui::tr("Error"), ui::trf("Invalid tap name: %1 (use user/repo)", {tap}), true);
+        return;
+    }
+    const bool trust = request->trust;
+    runOperation(ui::trf("Adding the tap %1…", {tap}),
+                 qs(m_mgr.commandLine({"tap", tap.toStdString()}))
+                     + (trust ? "; " + qs(m_mgr.commandLine({"trust", "--tap", tap.toStdString()})) : QString()),
+                 [this, tap, trust](const octo::OutputFn &out) { m_mgr.tap(tap.toStdString(), trust, out); },
+                 // Os pacotes do tap entram na visão Repositório na próxima leitura.
+                 [this, tap] {
+                     m_hasRemote = m_remoteView;
+                     notice(ui::tr("Command finished OK!"),
+                            ui::trf("Tap added: %1", {tap}) + "\n" + ui::tr("Its packages are in the repository view (i)."));
+                 });
+}
+
+void MainWindow::removeTap()
+{
+    if (refuseWhileBusy())
+        return;
+    m_busy = true;
+    setStatus(ui::tr("Listing the taps…"));
+    runAsync<Result<std::vector<octo::Tap>>>(
+        [this] {
+            Result<std::vector<octo::Tap>> r;
+            try {
+                for (auto &t : m_mgr.listTaps())
+                    if (!t.official)
+                        r.value.push_back(std::move(t));
+            } catch (const std::exception &e) {
+                r.error = QString::fromUtf8(e.what());
+            }
+            return r;
+        },
+        [this](const Result<std::vector<octo::Tap>> &r) {
+            m_busy = false;
+            setStatus(r.error.isEmpty() ? ui::tr("Ready.") : ui::trf("ERROR: %1", {r.error}), !r.error.isEmpty());
+            if (!r.error.isEmpty()) {
+                notice(ui::tr("Error"), r.error, true);
+                return;
+            }
+            if (r.value.empty()) {
+                notice(ui::tr("Remove a tap"), ui::tr("There are no third-party taps."));
+                return;
+            }
+            QStringList items;
+            for (const auto &t : r.value)
+                items << qs(t.name) + QStringLiteral("  (%1)").arg(t.formulae.size() + t.casks.size())
+                             + (t.trusted ? QString() : "  " + ui::tr("untrusted"));
+            const auto index = choose(ui::tr("Remove a tap"), ui::tr("Tap:"), items);
+            if (!index || *index < 0)
+                return;
+            const QString tap = qs(r.value[static_cast<size_t>(*index)].name);
+            // O brew recusa o untap com pacotes do tap instalados: melhor dizer quais.
+            QStringList used;
+            for (const auto &p : m_installed)
+                if (qs(p.tap) == tap)
+                    used << qs(p.fullName);
+            if (!used.isEmpty()) {
+                notice(ui::tr("Remove a tap"),
+                       ui::trf("These packages from %1 are installed; remove them first:", {tap}) + "\n• " + used.join(QStringLiteral("\n• ")));
+                return;
+            }
+            ConfirmRequest req;
+            req.title = ui::tr("Remove a tap");
+            req.text = ui::trf("Remove the tap %1?", {tap});
+            req.danger = true;
+            if (!confirm(req).accepted)
+                return;
+            runOperation(ui::trf("Removing the tap %1…", {tap}), qs(m_mgr.commandLine({"untap", tap.toStdString()})),
+                         [this, tap](const octo::OutputFn &out) { m_mgr.untap(tap.toStdString(), out); },
+                         [this] { m_hasRemote = m_remoteView; });
+        });
+}
+
+void MainWindow::doctor()
+{
+    if (refuseWhileBusy())
+        return;
+    m_busy = true;
+    setStatus(ui::tr("Checking the system (brew doctor)…"));
+    runAsync<Result<octo::DoctorReport>>(
+        [this] {
+            Result<octo::DoctorReport> r;
+            try {
+                r.value = m_mgr.doctor();
+            } catch (const std::exception &e) {
+                r.error = QString::fromUtf8(e.what());
+            }
+            return r;
+        },
+        [this](const Result<octo::DoctorReport> &r) {
+            m_busy = false;
+            setStatus(r.error.isEmpty() ? ui::tr("Ready.") : ui::trf("ERROR: %1", {r.error}), !r.error.isEmpty());
+            if (!r.error.isEmpty()) {
+                notice(ui::tr("Error"), r.error, true);
+                return;
+            }
+            log(QStringLiteral("brew doctor"));
+            appendOutput(qs(r.value.output) + "\n");
+            if (r.value.ready) {
+                notice(ui::tr("Check the system"), ui::tr("Your system is ready to brew."));
+                return;
+            }
+            if (r.value.warnings.empty()) {
+                notice(ui::tr("Check the system"), ui::tr("brew doctor reported problems.") + "\n" + ui::tr("Details in the Output tab."));
+                return;
+            }
+            notice(ui::tr("Check the system"), ui::trf("brew doctor found %1 warning(s):", {QString::number(r.value.warnings.size())})
+                                                   + "\n• " + toQ(r.value.warnings).join(QStringLiteral("\n• ")) + "\n\n"
+                                                   + ui::tr("Details in the Output tab."));
+        });
+}
+
+void MainWindow::exportBrewfile()
+{
+    if (refuseWhileBusy())
+        return;
+    const QString file = askFile(true, ui::tr("Export a Brewfile"), QDir::homePath() + QStringLiteral("/Brewfile"));
+    if (file.isEmpty())
+        return;
+    runOperation(ui::tr("Exporting the Brewfile…"), qs(m_mgr.commandLine({"bundle", "dump", "--file=" + file.toStdString(), "--force"})),
+                 [this, file](const octo::OutputFn &out) { m_mgr.snapshot(file.toStdString(), out); },
+                 [this, file] { notice(ui::tr("Command finished OK!"), ui::trf("Brewfile saved: %1", {file})); });
+}
+
+void MainWindow::importBrewfile()
+{
+    if (refuseWhileBusy())
+        return;
+    const QString file = askFile(false, ui::tr("Install from a Brewfile"), QDir::homePath() + QStringLiteral("/Brewfile"));
+    if (file.isEmpty())
+        return;
+    // A prévia: o que falta, pelo brew bundle check.
+    m_busy = true;
+    setStatus(ui::tr("Collecting transaction data…"));
+    runAsync<Result<std::vector<std::string>>>(
+        [this, file] {
+            Result<std::vector<std::string>> r;
+            try {
+                r.value = m_mgr.bundleCheck(file.toStdString());
+            } catch (const std::exception &e) {
+                r.error = QString::fromUtf8(e.what());
+            }
+            return r;
+        },
+        [this, file](const Result<std::vector<std::string>> &r) {
+            m_busy = false;
+            setStatus(r.error.isEmpty() ? ui::tr("Ready.") : ui::trf("ERROR: %1", {r.error}), !r.error.isEmpty());
+            if (!r.error.isEmpty()) {
+                notice(ui::tr("Error"), r.error, true);
+                return;
+            }
+            if (r.value.empty()) {
+                notice(ui::tr("Install from a Brewfile"), ui::trf("Everything in %1 is already installed.", {file}));
+                return;
+            }
+            const QStringList missing = toQ(r.value);
+            log(ui::tr("Transaction:"));
+            for (const auto &m : missing)
+                log("  + " + m);
+            ConfirmRequest req;
+            req.title = ui::tr("Install from a Brewfile");
+            req.text = ui::tr("Confirm?");
+            req.details = section(ui::trf("The following %1 packages need to be retrieved", {QString::number(missing.size())}), missing)
+                          + QStringLiteral("<p>%1</p>").arg(ui::tr("Installs what is missing from it; nothing is removed or upgraded.").toHtmlEscaped());
+            if (!confirm(req).accepted)
+                return;
+            const bool interactive = askpassAvailable();
+            runOperation(ui::tr("Installing from the Brewfile…"),
+                         qs(m_mgr.commandLine({"bundle", "install", "--file=" + file.toStdString(), "--no-upgrade"})),
+                         [this, file, interactive](const octo::OutputFn &out) { m_mgr.restore(file.toStdString(), out, interactive); },
+                         [this, file] {
+                             notice(ui::tr("Command finished OK!"), ui::trf("Installed from: %1", {file}) + "\n" + ui::tr("Details in the Output tab."));
+                         });
+        });
 }

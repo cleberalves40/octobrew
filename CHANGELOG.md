@@ -5,6 +5,34 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/)
 e o projeto usa [versionamento semântico](https://semver.org/lang/pt-BR/),
 com tags no formato `vX.Y.Z`.
 
+## [0.3.0] - 2026-10-25
+
+Notícias, Serviços e o menu Homebrew (Fase 3 do [roadmap](docs/ROADMAP.md)).
+
+### Adicionado
+- Aba **Notícias** (⌥5): o blog do Homebrew (`brew.sh/atom.xml`), com o título como link,
+  a data e o resumo. Baixa na primeira visita, com as salvas na hora; ⌘G ou Arquivo →
+  Buscar as últimas notícias baixa de novo. O cache fica em `~/.config/octobrew/news.xml`;
+  sem rede, ficam as salvas com o aviso, e as novas marcam a aba com `*`.
+- Aba **Serviços** (⌥7): a tabela do `brew services list`, com o estado (em verde o
+  iniciado, em vermelho o erro), o usuário, o código de saída e o plist, e os botões
+  Iniciar, Parar e Reiniciar. Na aba, valem para a linha selecionada; fora dela, para a
+  fórmula selecionada na lista. A aba Informação mostra o serviço da fórmula.
+- Menu **Homebrew**: Serviços; Iniciar, Parar e Reiniciar o serviço; Adicionar um tap…
+  (com a opção do `brew trust --tap`, que o brew 6+ exige dos taps de terceiros) e
+  Remover um tap… (que antes diz quais pacotes do tap estão instalados); Exportar um
+  Brewfile… e Instalar de um Brewfile… (com o diálogo de arquivo nativo; a prévia é o
+  `brew bundle check`); e Verificar o sistema (`brew doctor`, com os avisos num diálogo e o
+  texto completo na aba Saída).
+- `tests/check-translations.py`, no `ctest`: todo texto da GUI tem o português e o espanhol.
+- Testes: `tst_homebrew` (as duas abas, os serviços, os taps, o doctor e os Brewfiles,
+  com o brew e o curl falsos) e, na integração, o feed de verdade e os serviços do
+  Homebrew real, com as capturas das abas.
+
+### Corrigido
+- O diálogo de senha do sudo (`octobrew-askpass`) aparecia em inglês mesmo em português:
+  dois textos dele não estavam no catálogo. A nova verificação das traduções pegou.
+
 ## [0.2.0] - 2026-10-25
 
 Transações: marcar, instalar, remover, atualizar, limpar e fixar, como no OctoPkg

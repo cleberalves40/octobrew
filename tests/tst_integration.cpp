@@ -39,6 +39,17 @@ private slots:
         QCoreApplication::processEvents();   // o layout da barra de status, antes da imagem
         if (!shot.isEmpty())
             QVERIFY(w.grab().save(shot));
+        // As abas Notícias (o feed do brew.sh, com o curl) e Serviços, só lendo.
+        w.setTab(MainWindow::NewsTab);
+        QVERIFY2(!w.news().empty(), "o feed do brew.sh não chegou");
+        QCoreApplication::processEvents();
+        if (!shot.isEmpty())
+            QVERIFY(w.grab().save(QString(shot).replace(QStringLiteral(".png"), QStringLiteral("-news.png"))));
+        w.setTab(MainWindow::ServicesTab);
+        QCoreApplication::processEvents();
+        if (!shot.isEmpty())
+            QVERIFY(w.grab().save(QString(shot).replace(QStringLiteral(".png"), QStringLiteral("-services.png"))));
+        w.setTab(MainWindow::InfoTab);
         w.toggleView();
         QVERIFY(w.packageModel()->rowCount() > 5000);
         QCoreApplication::processEvents();

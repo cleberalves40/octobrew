@@ -41,7 +41,7 @@ em Brewfile e por rodar também no Linux.
 - Atualizar, upgrade, cleanup, autoremove, pin e a restauração de snapshot.
 - O `octobrew-askpass` para os casks com `.pkg`; a saída ao vivo na aba Saída.
 
-### Fase 3 — Notícias, Serviços e Homebrew (v0.3.0)
+### Fase 3 — Notícias, Serviços e Homebrew ✅ (v0.3.0)
 - As abas Notícias e Serviços; taps (com a confiança), `brew doctor` e Brewfiles, com
   os diálogos de arquivo nativos.
 

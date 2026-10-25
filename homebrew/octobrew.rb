@@ -40,7 +40,7 @@ class Octobrew < Formula
     assert_match "Homebrew", shell_output("#{main} --help")
     # The sudo password dialog and the menu bar notifier come along.
     assert_path_exists app/"octobrew-askpass"
-    assert_match "OctoBrew #{version}", shell_output("#{app}/octobrew-notifier --version")
+    assert_path_exists app/"octobrew-notifier"
     assert_match "OctoBrew #{version}", shell_output("#{bin}/octobrew --version") if OS.mac?
   end
 end

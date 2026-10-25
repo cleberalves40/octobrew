@@ -28,6 +28,11 @@ com o próprio Homebrew, e a interface fica estável.
 - `docs/RELEASING.md`: a fórmula, o tap e por que não o homebrew-core (que não aceita
   aplicativos gráficos) nem um cask (que precisa da notarização da Apple), por enquanto.
 
+### Corrigido
+- O `octobrew-notifier --version` (e o `--help`) caía sem o servidor de janelas (o sandbox
+  do `brew test`, ou por SSH): ele chamava o AppKit, para sair do Dock, antes de ler as
+  opções. Agora as opções vêm antes, e o AppKit só com a tela de verdade (o plugin cocoa).
+
 ## [0.4.0] - 2026-10-25
 
 O macOS de verdade (Fase 4 do [roadmap](docs/ROADMAP.md)).

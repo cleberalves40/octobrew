@@ -8,6 +8,7 @@
 #define OCTOBREW_MAINWINDOW_H
 
 #include "brew.h"
+#include "news.h"
 #include "settings.h"
 #include "transactiondialog.h"
 
@@ -20,6 +21,7 @@
 #include <atomic>
 #include <functional>
 #include <map>
+#include <optional>
 
 class PackageModel;
 class QAction;
@@ -31,6 +33,7 @@ class QListWidget;
 class QPlainTextEdit;
 class QProgressBar;
 class QTreeWidget;
+class QTableWidget;
 class QSplitter;
 class QTabWidget;
 class QTableView;
@@ -42,6 +45,7 @@ struct WindowOptions {
     QString settingsPath;      // vazio: ~/.config/octobrew/config
     bool remote = false;       // começa na visão Repositório
     bool synchronous = false;  // os testes: o trabalho roda na hora, sem threads
+    QString curlPath;          // vazio: /usr/bin/curl, para o feed de notícias
 };
 
 class MainWindow : public QMainWindow
@@ -49,13 +53,23 @@ class MainWindow : public QMainWindow
     Q_OBJECT
 
 public:
-    /** As abas, com as teclas do OctoPkg (⌥1, ⌥2, ⌥3, ⌥4 e ⌥6; ⌥5, Notícias, na Fase 3). */
-    enum Tab { InfoTab = 0, FilesTab, ActionsTab, OutputTab, HelpTab };
+    /** As abas, com as teclas do OctoPkg (⌥1 a ⌥6) e a dos serviços do Homebrew (⌥7). */
+    enum Tab { InfoTab = 0, FilesTab, ActionsTab, OutputTab, NewsTab, HelpTab, ServicesTab };
 
     /** Confirma uma transação (o diálogo; os testes respondem sem abrir janela). */
     using ConfirmHandler = std::function<ConfirmAnswer(const ConfirmRequest &)>;
     /** Avisa o resultado ou um erro (uma caixa de mensagem; os testes guardam o texto). */
     using NoticeHandler = std::function<void(const QString &title, const QString &text, bool error)>;
+    /** Escolhe um item de uma lista (QInputDialog::getItem); nullopt se cancelou. */
+    using ChooseHandler = std::function<std::optional<int>(const QString &title, const QString &label, const QStringList &items)>;
+    /** Pede um arquivo (o diálogo nativo); save: para gravar. Vazio se cancelou. */
+    using FileHandler = std::function<QString(bool save, const QString &title, const QString &suggested)>;
+    /** O tap a adicionar e se confia nele; nullopt se cancelou. */
+    struct TapRequest {
+        QString name;
+        bool trust = false;
+    };
+    using TapHandler = std::function<std::optional<TapRequest>()>;
 
     explicit MainWindow(const WindowOptions &options, QWidget *parent = nullptr);
     ~MainWindow() override;
@@ -76,6 +90,25 @@ public:
     void pin(bool pin);
     /** Restaura um snapshot (brew bundle install --no-upgrade); file vazio: escolher na lista. */
     void restoreSnapshot(const QString &file = QString());
+
+    // Fase 3: as notícias e o que só o Homebrew tem.
+    void loadNews();
+    void refreshNews();
+    void loadServices();
+    /** brew services start|stop|restart: o serviço selecionado na aba, ou o da fórmula selecionada. */
+    void service(const QString &verb);
+    void addTap();
+    void removeTap();
+    void doctor();
+    void exportBrewfile();
+    void importBrewfile();
+
+    void setChooseHandler(ChooseHandler handler) { m_choose = std::move(handler); }
+    void setFileHandler(FileHandler handler) { m_file = std::move(handler); }
+    void setTapHandler(TapHandler handler) { m_tap = std::move(handler); }
+    QTextBrowser *newsView() const { return m_newsView; }
+    QTableWidget *servicesView() const { return m_servicesView; }
+    const std::vector<octo::NewsItem> &news() const { return m_news.items; }
 
     void setConfirmHandler(ConfirmHandler handler) { m_confirm = std::move(handler); }
     void setNoticeHandler(NoticeHandler handler) { m_notice = std::move(handler); }
@@ -106,6 +139,7 @@ public:
     QAction *action(const QString &name) const;
     /** Pede os detalhes do selecionado já (a tela espera um instante entre as setas). */
     void loadDetails();
+    void setTab(int tab);
 
 protected:
     void closeEvent(QCloseEvent *event) override;
@@ -144,6 +178,14 @@ private:
     /** O sudo pode pedir a senha pelo octobrew-askpass (o SUDO_ASKPASS está definido)? */
     bool askpassAvailable() const;
 
+    std::optional<int> choose(const QString &title, const QString &label, const QStringList &items);
+    QString askFile(bool save, const QString &title, const QString &suggested);
+    std::optional<TapRequest> askTap();
+    void applyNews(const octo::NewsResult &result);
+    void renderNews();
+    void renderServices();
+    void setTabTitles();
+
     void buildUi();
     void buildActions();
     void restoreState();
@@ -157,7 +199,6 @@ private:
     void setSearchMode(bool description);
     void selectionChanged();
     void showDetails();
-    void setTab(int tab);
     void about();
     void log(const QString &message);
     void setStatus(const QString &message, bool error = false);
@@ -203,6 +244,8 @@ private:
     QPlainTextEdit *m_files = nullptr;
     QPlainTextEdit *m_output = nullptr;
     QTreeWidget *m_actionsView = nullptr;
+    QTextBrowser *m_newsView = nullptr;
+    QTableWidget *m_servicesView = nullptr;
     QProgressBar *m_progress = nullptr;
     QTextBrowser *m_help = nullptr;
     QSplitter *m_vertical = nullptr;
@@ -222,6 +265,19 @@ private:
     QString m_operationError;                  // fica no status até a próxima listagem limpa
     ConfirmHandler m_confirm;
     NoticeHandler m_notice;
+    ChooseHandler m_choose;
+    FileHandler m_file;
+    TapHandler m_tap;
+
+    octo::NewsFeed m_newsFeed;
+    octo::NewsResult m_news;
+    bool m_newsStarted = false;                // a aba já foi aberta
+    bool m_newsBusy = false;
+    bool m_newsUnseen = false;                 // notícias novas ainda não vistas: "*" na aba
+    std::vector<octo::Service> m_services;
+    bool m_servicesLoaded = false;
+    bool m_servicesBusy = false;
+    QString m_servicesError;
 };
 
 #endif

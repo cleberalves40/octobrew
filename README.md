@@ -11,7 +11,7 @@ do [octobrew-tui](https://github.com/cleberalves40/octobrew-tui), a versão de t
 
 ## Estado
 
-**v0.2.0** (as Fases 0 a 2 do [roadmap](docs/ROADMAP.md)). O programa:
+**v0.3.0** (as Fases 0 a 3 do [roadmap](docs/ROADMAP.md)). O programa:
 
 - lista as fórmulas e os casks instalados e os do repositório (o cache da API do
   Homebrew, mais os taps de terceiros), com os ícones de estado do OctoPkg;
@@ -27,7 +27,17 @@ do [octobrew-tui](https://github.com/cleberalves40/octobrew-tui), a versão de t
 - pede a senha do sudo, para os casks com `.pkg`, por um diálogo próprio
   (`octobrew-askpass`).
 
-As abas Notícias e Serviços são a Fase 3. Veja o [CHANGELOG](CHANGELOG.md).
+- mostra as notícias do blog do Homebrew (aba **Notícias**, ⌥5) e os serviços (aba
+  **Serviços**, ⌥7), que inicia, para e reinicia;
+- adiciona e remove taps (com a confiança do brew 6+), roda o `brew doctor`, e exporta e
+  instala de Brewfiles com o diálogo de arquivo nativo, no menu **Homebrew**.
+
+A Fase 4 traz o macOS de verdade (barra de menus global, notificador, contagem no Dock).
+Veja o [CHANGELOG](CHANGELOG.md).
+
+| Notícias | Serviços |
+|:---:|:---:|
+| ![A aba Notícias](docs/images/octobrew-news.png) | ![A aba Serviços](docs/images/octobrew-services.png) |
 
 ## Transações
 
@@ -80,7 +90,9 @@ macOS.
 | <kbd>⌥M</kbd> | Ctrl+M | Aplicar: prévia, confirmação e a transação |
 | <kbd>⌘E</kbd> | Ctrl+E | Desfazer as marcas |
 | <kbd>⌘U</kbd> / <kbd>⌘K</kbd> | Ctrl+U / Ctrl+K | Instalar as atualizações / atualizar o Homebrew |
-| <kbd>⌥1</kbd>…<kbd>⌥4</kbd> <kbd>⌥6</kbd> | Alt+1… | Abas Informação, Arquivos, Ações, Saída e Ajuda, com os números do OctoPkg |
+| <kbd>⌥1</kbd>…<kbd>⌥6</kbd> | Alt+1…Alt+6 | Abas Informação, Arquivos, Ações, Saída, Notícias e Ajuda, com os números do OctoPkg |
+| <kbd>⌥7</kbd> | Alt+7 | Aba Serviços (`brew services`) |
+| <kbd>⌘G</kbd> | Ctrl+G | Buscar as últimas notícias do Homebrew |
 | <kbd>F1</kbd> | F1 | Ajuda |
 | <kbd>⌘Q</kbd> | Ctrl+Q | Sair |
 
@@ -110,6 +122,9 @@ OCTOBREW_TEST_BREW=$(command -v brew) OCTOBREW_SCREENSHOT=/tmp/octobrew.png ./bu
   Ajuda e preferências.
 - `tst_transactions`: as marcas, a aba Ações, os diálogos, as operações na ordem e com o
   ambiente certos, o snapshot, as falhas e o diálogo de senha.
+- `tst_homebrew`: as abas Notícias e Serviços, os serviços, os taps, o doctor e os
+  Brewfiles.
+- `tests/check-translations.py`: todo texto da GUI com o português e o espanhol.
 - `tst_integration`: a janela contra o Homebrew real, só lendo, com uma captura da tela.
 
 O CI roda no macOS (o Qt do Homebrew, a integração e o bundle aberto de verdade) e no

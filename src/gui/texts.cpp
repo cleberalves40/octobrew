@@ -24,6 +24,11 @@ const Entry kEntries[] = {
     {"A graphical front end for Homebrew.", "Uma interface gráfica para o Homebrew.", "Una interfaz gráfica para Homebrew."},
     {"and on octobrew-tui", "e no octobrew-tui", "y en octobrew-tui"},
     {"Leaves", "Folhas", "Hojas"},
+    {"User", "Usuário", "Usuario"},
+    {"Exit code", "Código de saída", "Código de salida"},
+    {"Brewfiles (Brewfile *.Brewfile);;All files (*)", "Brewfiles (Brewfile *.Brewfile);;Todos os arquivos (*)", "Brewfiles (Brewfile *.Brewfile);;Todos los archivos (*)"},
+    {"A cask needs administrator rights (sudo).", "Um cask precisa de direitos de administrador (sudo).", "Un cask necesita derechos de administrador (sudo)."},
+    {"Password:", "Senha:", "Contraseña:"},
 };
 
 } // namespace

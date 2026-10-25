@@ -68,7 +68,7 @@ QString emptyInfoHtml()
     return QStringLiteral("<p><i>%1</i></p>").arg(ui::tr("Select a package to see details.").toHtmlEscaped());
 }
 
-QString infoHtml(const octo::Package &p, const octo::Details *d, const QString &error)
+QString infoHtml(const octo::Package &p, const octo::Details *d, const QString &error, const QString &service)
 {
     QString html = QStringLiteral("<h3 style='margin-bottom:2px'>%1</h3><p style='margin-top:0'>%2</p><table>")
                        .arg(esc(p.name), esc(p.comment));
@@ -76,6 +76,9 @@ QString infoHtml(const octo::Package &p, const octo::Details *d, const QString &
     const QString status = statusText(p).toHtmlEscaped();
     html += row(ui::tr("Status"), color.isEmpty() ? status : QStringLiteral("<span style='color:%1'>%2</span>").arg(color, status));
     html += row(ui::tr("Type"), kindText(p.kind).toHtmlEscaped());
+    // O serviço vem da aba Serviços, não dos detalhes: aparece logo.
+    if (p.hasService)
+        html += row(ui::tr("Service"), (service.isEmpty() ? ui::tr("yes (tab 7)") : service).toHtmlEscaped());
     if (!error.isEmpty())
         return html + QStringLiteral("</table><p style='color:#c03030'>%1</p>")
                           .arg(ui::trf("ERROR: %1", {error}).toHtmlEscaped());
@@ -119,6 +122,44 @@ QString infoHtml(const octo::Package &p, const octo::Details *d, const QString &
     if (!d->caveats.empty())
         html += QStringLiteral("<h4 style='color:#c08000'>%1</h4><pre>%2</pre>")
                     .arg(ui::tr("Caveats").toHtmlEscaped(), esc(d->caveats));
+    return html;
+}
+
+QString serviceStatusText(const std::string &status)
+{
+    if (status == "started")
+        return ui::tr("Started");
+    if (status == "stopped")
+        return ui::tr("Stopped");
+    if (status == "scheduled")
+        return ui::tr("Scheduled");
+    if (status == "error")
+        return ui::tr("Error");
+    if (status == "none")
+        return ui::tr("Not running");
+    return QString::fromStdString(status);
+}
+
+QString newsHtml(const std::vector<octo::NewsItem> &items, bool loading, const QString &error, bool fromCache)
+{
+    QString html = QStringLiteral("<h3>%1</h3>").arg(ui::trf("%1 news", {QString::fromLatin1(octo::kNewsSource)}).toHtmlEscaped());
+    if (loading)
+        html += QStringLiteral("<p><i>%1</i></p>")
+                    .arg(ui::trf("Searching for %1 latest news...", {QString::fromLatin1(octo::kNewsSource)}).toHtmlEscaped());
+    if (!error.isEmpty())
+        html += QStringLiteral("<p style='color:#c08000'>%1</p>")
+                    .arg((ui::trf("WARNING: %1", {error}) + (fromCache && !items.empty() ? " " + ui::tr("(showing the saved news)") : QString()))
+                             .toHtmlEscaped());
+    if (items.empty() && !loading)
+        html += QStringLiteral("<p><i>%1</i></p>").arg(ui::tr("No news yet. Ctrl+G gets the latest news.").toHtmlEscaped());
+    for (const auto &n : items) {
+        const QString title = esc(n.title.empty() ? n.description : n.title);
+        html += QStringLiteral("<p style='margin-bottom:2px'><b>%1</b>%2</p>")
+                    .arg(n.link.empty() ? title : QStringLiteral("<a href='%1'>%2</a>").arg(esc(n.link), title),
+                         n.date.empty() ? QString() : QStringLiteral(" &nbsp;<span style='color:gray'>%1</span>").arg(esc(n.date)));
+        if (!n.title.empty() && !n.description.empty())
+            html += QStringLiteral("<p style='margin-top:0'>%1</p>").arg(esc(n.description));
+    }
     return html;
 }
 

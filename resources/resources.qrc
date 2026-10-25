@@ -1,0 +1,22 @@
+<!DOCTYPE RCC>
+<RCC version="1.0">
+  <!-- Os ícones do OctoPkg (Octopi), © Alexandre Albuquerque Arnt. -->
+  <qresource prefix="/images">
+    <file alias="installed.png">images/installed.png</file>
+    <file alias="unrequired.png">images/unrequired.png</file>
+    <file alias="noninstalled.png">images/noninstalled.png</file>
+    <file alias="outdated.png">images/outdated.png</file>
+    <file alias="newer.png">images/newer.png</file>
+    <file alias="locker-key.png">images/locker-key.png</file>
+    <file alias="toinstall.png">images/toinstall.png</file>
+    <file alias="toremove.png">images/toremove.png</file>
+    <file alias="octopi_green.png">images/octopi_green.png</file>
+    <file alias="octopi_red.png">images/octopi_red.png</file>
+    <file alias="octopi_yellow.png">images/octopi_yellow.png</file>
+    <file alias="octopi_green-big.png">images/octopi_green-big.png</file>
+    <file alias="refresh.png">images/refresh.png</file>
+    <file alias="find.png">images/find.png</file>
+    <file alias="cloud.png">images/cloud.png</file>
+    <file alias="terminal.png">images/terminal.png</file>
+  </qresource>
+</RCC>

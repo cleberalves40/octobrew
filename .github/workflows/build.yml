@@ -1,0 +1,84 @@
+name: Build & Test
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  # macOS com o Qt do Homebrew (qtbase): os testes sem tela, a janela contra o
+  # Homebrew real (só lendo) e o OctoBrew.app autocontido, aberto de verdade.
+  macos:
+    name: macOS (macos-latest)
+    runs-on: macos-latest
+
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Check version consistency
+      run: |
+        ver=$(sed -n 's/^project(octobrew VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)
+        echo "CMakeLists.txt: $ver"
+        test -n "$ver"
+        grep -q "^## \[$ver\]" CHANGELOG.md
+
+    - name: Install Dependencies
+      run: brew install cmake ninja qtbase
+
+    - name: Build and test
+      env:
+        QT_QPA_PLATFORM: offscreen
+      run: |
+        cmake -B build -S . -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$(brew --prefix)" \
+          -DOCTOBREW_BUILD_TESTS=ON
+        cmake --build build
+        ctest --test-dir build --output-on-failure
+        OCTOBREW_TEST_BREW="$(command -v brew)" OCTOBREW_SCREENSHOT="$PWD/octobrew.png" ./build/tst_integration
+
+    - name: Bundle (macdeployqt) and launch
+      run: sh ci/bundle.sh --launch build
+
+    - name: Screenshots
+      uses: actions/upload-artifact@v4
+      with:
+        name: screenshots
+        path: octobrew*.png
+
+  # Ubuntu: o Qt 6.4 do apt, a versão mais antiga suportada, também com
+  # AddressSanitizer e UBSan.
+  linux:
+    name: Build (Ubuntu, Qt 6.4)
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Install Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cmake ninja-build clang qt6-base-dev libgl1-mesa-dev
+
+    - name: Build and test
+      env:
+        QT_QPA_PLATFORM: offscreen
+      run: |
+        cmake -B build -S . -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=clang++ -DOCTOBREW_BUILD_TESTS=ON
+        cmake --build build
+        ctest --test-dir build --output-on-failure
+        ./build/octobrew --version
+
+    - name: Test with ASan + UBSan
+      env:
+        QT_QPA_PLATFORM: offscreen
+        # As bibliotecas do sistema (fontconfig, glib) deixam memória para trás
+        # ao sair: só os erros de acesso reprovam.
+        ASAN_OPTIONS: detect_leaks=0:halt_on_error=1
+        UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+      run: |
+        cmake -B build-asan -S . -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=clang++ -DOCTOBREW_BUILD_TESTS=ON \
+          -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer" \
+          -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+        cmake --build build-asan
+        ctest --test-dir build-asan --output-on-failure

@@ -1,0 +1,79 @@
+cmake_minimum_required(VERSION 3.16)
+project(octobrew VERSION 0.1.0 LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTORCC ON)
+
+find_package(Threads REQUIRED)
+# Qt6 (macOS: brew install qtbase; Ubuntu: apt install qt6-base-dev). A 6.4
+# (a do Ubuntu 24.04) é a mais antiga suportada.
+find_package(Qt6 6.4 REQUIRED COMPONENTS Core Gui Widgets Concurrent)
+
+# O núcleo do octobrew-tui, do subtree em tui/ (git subtree): o brew, o JSON,
+# as notícias, i18n, preferências e o modelo da lista. C++ padrão, sem Qt.
+add_library(octobrew_core STATIC
+    tui/src/core/process.cpp
+    tui/src/core/json.cpp
+    tui/src/core/news.cpp
+    tui/src/core/brew.cpp
+    tui/src/core/i18n.cpp
+    tui/src/core/settings.cpp
+    tui/src/model/listmodel.cpp
+)
+target_include_directories(octobrew_core PUBLIC tui/src/core tui/src/model)
+target_link_libraries(octobrew_core PUBLIC Threads::Threads)
+
+# A interface (Qt6 Widgets), compartilhada pelo aplicativo e pelos testes.
+add_library(octobrew_gui STATIC
+    src/gui/strings.cpp
+    src/gui/pages.cpp
+    src/gui/packagemodel.cpp
+    src/gui/mainwindow.cpp
+    resources/resources.qrc
+)
+target_include_directories(octobrew_gui PUBLIC src/gui)
+target_link_libraries(octobrew_gui PUBLIC octobrew_core Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent)
+# Fonte única da versão: project(... VERSION ...); usada no --version e no Sobre.
+target_compile_definitions(octobrew_gui PUBLIC OCTOBREW_VERSION="${PROJECT_VERSION}")
+
+# No macOS, um bundle OctoBrew.app, com o ícone do polvo.
+set(app_icon ${CMAKE_CURRENT_SOURCE_DIR}/resources/macos/OctoBrew.icns)
+set_source_files_properties(${app_icon} PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+add_executable(octobrew MACOSX_BUNDLE WIN32 src/main.cpp ${app_icon})
+target_link_libraries(octobrew PRIVATE octobrew_gui)
+set_target_properties(octobrew PROPERTIES
+    OUTPUT_NAME OctoBrew
+    MACOSX_BUNDLE_BUNDLE_NAME OctoBrew
+    MACOSX_BUNDLE_GUI_IDENTIFIER io.github.cleberalves40.octobrew
+    MACOSX_BUNDLE_ICON_FILE OctoBrew.icns
+    MACOSX_BUNDLE_BUNDLE_VERSION ${PROJECT_VERSION}
+    MACOSX_BUNDLE_SHORT_VERSION_STRING ${PROJECT_VERSION}
+    MACOSX_BUNDLE_COPYRIGHT "GPL-2.0-or-later")
+if(NOT APPLE)
+    set_target_properties(octobrew PROPERTIES OUTPUT_NAME octobrew)
+endif()
+
+foreach(target octobrew_core octobrew_gui octobrew)
+    target_compile_options(${target} PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-Wall -Wextra>)
+endforeach()
+
+install(TARGETS octobrew BUNDLE DESTINATION . RUNTIME DESTINATION bin)
+
+# Testes (QtTest, sem tela: QT_QPA_PLATFORM=offscreen). O brew falso e as
+# amostras do brew 7 vêm dos testes do octobrew-tui (tui/tests).
+option(OCTOBREW_BUILD_TESTS "Compila os testes" OFF)
+if(OCTOBREW_BUILD_TESTS)
+    find_package(Qt6 REQUIRED COMPONENTS Test)
+    enable_testing()
+    foreach(test tst_model tst_mainwindow tst_integration)
+        add_executable(${test} tests/${test}.cpp)
+        target_include_directories(${test} PRIVATE tui/tests)
+        target_link_libraries(${test} PRIVATE octobrew_gui Qt6::Test)
+        target_compile_options(${test} PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-Wall -Wextra>)
+        add_test(NAME ${test} COMMAND ${test})
+        set_tests_properties(${test} PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    endforeach()
+endif()

@@ -7,6 +7,7 @@
 #include "i18n.h"
 #include "mainwindow.h"
 #include "packagemodel.h"
+#include "preferences.h"
 
 #include <QApplication>
 #include <QCommandLineParser>
@@ -34,13 +35,18 @@ int main(int argc, char *argv[])
                                     QStringLiteral("arquivo"));
     const QCommandLineOption brew(QStringLiteral("brew"), QStringLiteral("O executável do brew."),
                                   QStringLiteral("executável"));
-    parser.addOptions({remote, lang, config, brew});
+    const QCommandLineOption upgrade(QStringLiteral("upgrade"),
+                                     QStringLiteral("Abre o Instalar as atualizações (o que o notificador usa)."));
+    parser.addOptions({remote, lang, config, brew, upgrade});
     parser.process(app);
 
+    // O idioma e a aparência das Preferências; o --lang vale por cima.
+    const octo::Settings settings((parser.isSet(config) ? parser.value(config) : prefs::defaultSettingsPath()).toStdString());
     if (parser.isSet(lang))
         i18n::setLocale(parser.value(lang).toStdString());
     else
-        i18n::initFromEnvironment();
+        prefs::applyLanguage(settings);
+    prefs::applyAppearance(prefs::appearance(settings));
 
     // O Homebrew não roda como root; melhor dizer logo por quê.
     if (::geteuid() == 0) {
@@ -59,6 +65,7 @@ int main(int argc, char *argv[])
     options.remote = parser.isSet(remote);
     options.settingsPath = parser.value(config);
     options.brewPath = parser.value(brew);
+    options.upgradeOnStart = parser.isSet(upgrade);
     MainWindow window(options);
     window.show();
     QTimer::singleShot(0, &window, [&window] { window.refresh(); });

@@ -2,6 +2,8 @@
 
 #include "mainwindow.h"
 #include "askpass.h"
+#include "notifier.h"
+#include "preferences.h"
 #include "listmodel.h"
 #include "packagemodel.h"
 #include "pages.h"
@@ -28,6 +30,7 @@
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QPlainTextEdit>
+#include <QProcess>
 #include <QProgressBar>
 #include <QSplitter>
 #include <QStatusBar>
@@ -47,16 +50,6 @@ namespace {
 QString qs(const std::string &s)
 {
     return QString::fromStdString(s);
-}
-
-// As preferências ficam em $XDG_CONFIG_HOME/octobrew/config (ou ~/.config),
-// separadas das do octobrew-tui.
-QString defaultSettingsPath()
-{
-    const QByteArray xdg = qgetenv("XDG_CONFIG_HOME");
-    if (!xdg.isEmpty())
-        return QString::fromLocal8Bit(xdg) + "/octobrew/config";
-    return QString::fromLocal8Bit(qgetenv("HOME")) + "/.config/octobrew/config";
 }
 
 constexpr int kDetailsDelayMs = 150;   // entre as setas, não pede o brew info de cada linha
@@ -124,7 +117,7 @@ void MainWindow::runAsync(std::function<R()> work, std::function<void(const R &)
 MainWindow::MainWindow(const WindowOptions &options, QWidget *parent)
     : QMainWindow(parent)
     , m_options(options)
-    , m_settings((options.settingsPath.isEmpty() ? defaultSettingsPath() : options.settingsPath).toStdString())
+    , m_settings((options.settingsPath.isEmpty() ? prefs::defaultSettingsPath() : options.settingsPath).toStdString())
     , m_mgr(options.brewPath.toStdString())
     , m_remoteView(options.remote)
     , m_newsFeed(QFileInfo(QString::fromStdString(m_settings.path())).absolutePath().toStdString() + "/news.xml",
@@ -385,6 +378,8 @@ void MainWindow::buildActions()
     add("tabServices", ui::tr("Services"), {QKeySequence(QStringLiteral("Alt+7"))}, [this] { setTab(ServicesTab); });
     add("tabHelp", ui::tr("Help"), {QKeySequence(QStringLiteral("Alt+6")), QKeySequence(Qt::Key_F1)},
         [this] { setTab(HelpTab); });
+    QAction *preferences = add("preferences", ui::tr("Preferences…"), {QKeySequence::Preferences}, [this] { openPreferences(); });
+    preferences->setMenuRole(QAction::PreferencesRole);   // no macOS, vai para o menu OctoBrew
     QAction *aboutAction = add("about", ui::tr("About"), {}, [this] { about(); });
     aboutAction->setMenuRole(QAction::AboutRole);
     QAction *aboutQt = add("aboutQt", ui::tr("About Qt"), {}, [] { QApplication::aboutQt(); });
@@ -400,6 +395,7 @@ void MainWindow::buildActions()
     file->addAction(m_actions["restore"]);
     file->addAction(m_actions["refreshNews"]);
     file->addSeparator();
+    file->addAction(preferences);
     file->addAction(quit);
     QMenu *search = menuBar()->addMenu(ui::tr("Search"));
     search->addAction(m_actions["findPackage"]);
@@ -424,6 +420,12 @@ void MainWindow::buildActions()
     QMenu *view = menuBar()->addMenu(ui::tr("View"));
     for (const char *t : {"tabInfo", "tabFiles", "tabActions", "tabOutput", "tabNews", "tabHelp", "tabServices"})
         view->addAction(m_actions[t]);
+#ifdef Q_OS_MACOS
+    // O menu Janela do macOS: ⌘M minimiza (o Aplicar ficou no ⌥M).
+    QMenu *window = menuBar()->addMenu(ui::tr("Window"));
+    window->addAction(add("minimize", ui::tr("Minimize"), {QKeySequence(QStringLiteral("Ctrl+M"))}, [this] { showMinimized(); }));
+    window->addAction(add("zoom", ui::tr("Zoom"), {}, [this] { isMaximized() ? showNormal() : showMaximized(); }));
+#endif
     QMenu *help = menuBar()->addMenu(ui::tr("Help"));
     help->addAction(m_actions["tabHelp"]);
     help->addAction(aboutAction);
@@ -539,8 +541,20 @@ void MainWindow::setStatus(const QString &message, bool error)
     m_statusLabel->setStyleSheet(error ? QStringLiteral("color: #c03030") : QString());
 }
 
+int MainWindow::badgeCount() const
+{
+    int n = 0;
+    for (const auto &p : m_installed)
+        n += !p.newVersion.empty() && !p.pinned ? 1 : 0;
+    return n;
+}
+
 void MainWindow::updateCounts()
 {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
+    // A contagem no ícone do Dock, como o notificador: os que dá para atualizar.
+    qGuiApp->setBadgeNumber(badgeCount());
+#endif
     m_countLabel->setText(ui::trf("%1 package(s)", {QString::number(m_model->packages().size())}));
     const int outdated = m_model->outdatedCount();
     m_outdatedLabel->setText(outdated > 0 ? ui::trf("%1 outdated", {QString::number(outdated)}) : QString());
@@ -623,6 +637,14 @@ void MainWindow::applyListing(const Listing &l, int generation)
         log(ui::trf("%1 package(s) in the repository.", {QString::number(m_remote.size())}));
     if (!l.warning.isEmpty())
         log(ui::trf("WARNING: %1", {l.warning}));
+    // --upgrade (o notificador): depois da primeira lista, o Instalar as atualizações.
+    if (l.error.isEmpty() && m_options.upgradeOnStart && !m_upgradeStarted) {
+        m_upgradeStarted = true;
+        if (m_options.synchronous)
+            upgrade();
+        else
+            QTimer::singleShot(0, this, &MainWindow::upgrade);
+    }
     if (!l.error.isEmpty() || m_installed.empty())
         return;
 
@@ -893,10 +915,10 @@ void MainWindow::notice(const QString &title, const QString &text, bool error)
         m_notice(title, text, error);
         return;
     }
-    if (error)
-        QMessageBox::critical(this, title, text);
-    else
-        QMessageBox::information(this, title, text);
+    // Presa à janela: no macOS, uma "sheet".
+    QMessageBox box(error ? QMessageBox::Critical : QMessageBox::Information, title, text, QMessageBox::Ok, this);
+    box.setWindowModality(Qt::WindowModal);
+    box.exec();
 }
 
 bool MainWindow::refuseWhileBusy()
@@ -1825,4 +1847,24 @@ void MainWindow::importBrewfile()
                              notice(ui::tr("Command finished OK!"), ui::trf("Installed from: %1", {file}) + "\n" + ui::tr("Details in the Output tab."));
                          });
         });
+}
+
+// ---------------------------------------------------------------------------
+// Fase 4: as Preferências
+// ---------------------------------------------------------------------------
+
+void MainWindow::openPreferences()
+{
+    const QString program = notifier::notifierPath();
+    PreferencesDialog dialog(m_settings, program, this);
+    if (dialog.exec() != QDialog::Accepted)
+        return;
+    const bool wasStarting = notifier::startsAtLogin(QDir::homePath());
+    QString error;
+    if (!dialog.save(&error))
+        notice(ui::tr("Error"), error, true);
+    // Ligado agora: o notificador já começa, sem esperar o próximo login.
+    if (!wasStarting && notifier::startsAtLogin(QDir::homePath()) && !program.isEmpty())
+        QProcess::startDetached(program, {});
+    setStatus(ui::tr("Preferences saved."));
 }

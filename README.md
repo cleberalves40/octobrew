@@ -11,7 +11,7 @@ do [octobrew-tui](https://github.com/cleberalves40/octobrew-tui), a versão de t
 
 ## Estado
 
-**v0.3.0** (as Fases 0 a 3 do [roadmap](docs/ROADMAP.md)). O programa:
+**v0.4.0** (as Fases 0 a 4 do [roadmap](docs/ROADMAP.md)). O programa:
 
 - lista as fórmulas e os casks instalados e os do repositório (o cache da API do
   Homebrew, mais os taps de terceiros), com os ícones de estado do OctoPkg;
@@ -32,8 +32,25 @@ do [octobrew-tui](https://github.com/cleberalves40/octobrew-tui), a versão de t
 - adiciona e remove taps (com a confiança do brew 6+), roda o `brew doctor`, e exporta e
   instala de Brewfiles com o diálogo de arquivo nativo, no menu **Homebrew**.
 
-A Fase 4 traz o macOS de verdade (barra de menus global, notificador, contagem no Dock).
-Veja o [CHANGELOG](CHANGELOG.md).
+- avisa das atualizações pelo **notificador** da barra de menus (o polvo do Octopi, como o
+  octopi-notifier), que pode iniciar com o sistema, e pela contagem no ícone do Dock;
+- tem as **Preferências** (⌘,): o idioma, a aparência (clara, escura ou a do sistema) e o
+  notificador.
+
+A Fase 5 é a distribuição (a fórmula no tap). Veja o [CHANGELOG](CHANGELOG.md).
+
+## O notificador
+
+O `octobrew-notifier` mora dentro do `OctoBrew.app` e vive só na barra de menus (fora do
+Dock e do ⌘⇥). Verifica ao abrir e de tempos em tempos (6 h por padrão), com o
+`brew update` antes, como o octopi-notifier, e mostra o polvo verde (em dia), amarelo (há
+atualizações) ou vermelho (o brew falhou). O menu tem os pacotes desatualizados,
+**Instalar as atualizações** (que abre o OctoBrew direto no diálogo do upgrade), **Abrir o
+OctoBrew** e **Procurar atualizações agora**.
+
+Em Preferências → **Iniciar o notificador ao entrar no sistema**, o OctoBrew grava um
+LaunchAgent em `~/Library/LaunchAgents/io.github.cleberalves40.octobrew.notifier.plist` (e
+o tira ao desmarcar). Para rodá-lo à mão: `OctoBrew.app/Contents/MacOS/octobrew-notifier`.
 
 | Notícias | Serviços |
 |:---:|:---:|
@@ -94,6 +111,8 @@ macOS.
 | <kbd>⌥7</kbd> | Alt+7 | Aba Serviços (`brew services`) |
 | <kbd>⌘G</kbd> | Ctrl+G | Buscar as últimas notícias do Homebrew |
 | <kbd>F1</kbd> | F1 | Ajuda |
+| <kbd>⌘,</kbd> | — | Preferências |
+| <kbd>⌘M</kbd> | — | Minimizar (menu Janela) |
 | <kbd>⌘Q</kbd> | Ctrl+Q | Sair |
 
 ## Arquitetura
@@ -124,6 +143,8 @@ OCTOBREW_TEST_BREW=$(command -v brew) OCTOBREW_SCREENSHOT=/tmp/octobrew.png ./bu
   ambiente certos, o snapshot, as falhas e o diálogo de senha.
 - `tst_homebrew`: as abas Notícias e Serviços, os serviços, os taps, o doctor e os
   Brewfiles.
+- `tst_macos`: o notificador (o resumo, o menu, a verificação e o LaunchAgent), as
+  Preferências, a contagem do Dock e o `--upgrade`, com o `HOME` num diretório temporário.
 - `tests/check-translations.py`: todo texto da GUI com o português e o espanhol.
 - `tst_integration`: a janela contra o Homebrew real, só lendo, com uma captura da tela.
 

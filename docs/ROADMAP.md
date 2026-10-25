@@ -45,7 +45,7 @@ em Brewfile e por rodar também no Linux.
 - As abas Notícias e Serviços; taps (com a confiança), `brew doctor` e Brewfiles, com
   os diálogos de arquivo nativos.
 
-### Fase 4 — macOS de verdade (v0.4.0)
+### Fase 4 — macOS de verdade ✅ (v0.4.0)
 - Barra de menus global, Preferências em ⌘, e diálogos como *sheets*.
 - Notificador, como o octopi-notifier: um ícone na barra de menus com a contagem de
   atualizações, um LaunchAgent que roda o `brew outdated` e a contagem no ícone do Dock.
